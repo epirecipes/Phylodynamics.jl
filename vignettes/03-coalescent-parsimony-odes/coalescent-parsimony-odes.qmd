@@ -25,6 +25,7 @@ At balanced peak sampling ($n_1 = 100, n_2 = 100, T = 12.85$), `compute_canonica
 
 ```{julia}
 using Phylodynamics
+using Phylodynamics.Zoonosis
 using CairoMakie
 using DataFrames
 using Printf

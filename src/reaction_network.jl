@@ -35,85 +35,6 @@ struct PhyloReactionSpec
 end
 
 """
-    build_zoonosis_reaction_system(; name::Symbol=:zoonosis)
-
-Construct the two-host SIRS zoonosis model (covering Models 1, 2, and 3) using
-`ModelingToolkit.jl` / `Catalyst.jl` reaction system syntax (`@independent_variables`, `@parameters`,
-`@species`, `Reaction`, `ReactionSystem`), matching Simon Frost's `rn_mtk.qmd` style.
-
-Returns `(rs = rs, species = (X1=X1, Y1=Y1, X2=X2, Y2=Y2), params = (...), t = t)`.
-"""
-function build_zoonosis_reaction_system(; name::Symbol = :zoonosis)
-    t = ModelingToolkit.t_nounits
-    @parameters nu1 mu1 gamma1 m1 beta nu2 mu2 gamma2 m2 epsilon phi psi
-    @species X1(t) Y1(t) X2(t) Y2(t)
-
-    rxs = [
-        # 1. Reservoir demographic turnover
-        Catalyst.Reaction(nu1, nothing, [X1], nothing, [1]),
-        Catalyst.Reaction(mu1, [X1], nothing, [1], nothing),
-        # 2. Reservoir-to-reservoir transmission (1 -> 1): X1 + Y1 --> 2Y1
-        Catalyst.Reaction(beta, [X1, Y1], [Y1], [1, 1], [2]),
-        # 3. Reservoir recovery & mortality: Y1 --> 0
-        Catalyst.Reaction(gamma1, [Y1], nothing, [1], nothing),
-        Catalyst.Reaction(mu1 + m1, [Y1], nothing, [1], nothing),
-        # 4. Human demographic turnover
-        Catalyst.Reaction(nu2, nothing, [X2], nothing, [1]),
-        Catalyst.Reaction(mu2, [X2], nothing, [1], nothing),
-        # 5. Zoonotic spillover (1 -> 2): X2 + Y1 --> Y2 + Y1
-        Catalyst.Reaction(epsilon * beta, [X2, Y1], [Y2, Y1], [1, 1], [1, 1]),
-        # 6. Human-to-human transmission (2 -> 2): X2 + Y2 --> 2Y2
-        Catalyst.Reaction(phi * beta, [X2, Y2], [Y2], [1, 1], [2]),
-        # 7. Reverse zoonosis / zooanthroponosis (2 -> 1): X1 + Y2 --> Y1 + Y2
-        Catalyst.Reaction(psi * beta, [X1, Y2], [Y1, Y2], [1, 1], [1, 1]),
-        # 8. Human recovery & mortality: Y2 --> 0
-        Catalyst.Reaction(gamma2, [Y2], nothing, [1], nothing),
-        Catalyst.Reaction(mu2 + m2, [Y2], nothing, [1], nothing)
-    ]
-
-    rs = Catalyst.ReactionSystem(
-        rxs, t, [X1, Y1, X2, Y2],
-        [nu1, mu1, gamma1, m1, beta, nu2, mu2, gamma2, m2, epsilon, phi, psi];
-        name = name,
-        combinatoric_ratelaws = false
-    )
-    rs = complete(rs)
-    return (
-        rs = rs,
-        species = (X1 = X1, Y1 = Y1, X2 = X2, Y2 = Y2),
-        infected = [Y1, Y2],
-        params = (nu1 = nu1, mu1 = mu1, gamma1 = gamma1, m1 = m1, beta = beta,
-                  nu2 = nu2, mu2 = mu2, gamma2 = gamma2, m2 = m2,
-                  epsilon = epsilon, phi = phi, psi = psi),
-        t = t
-    )
-end
-
-"""
-    build_zoonosis_catalyst_network()
-
-Construct the two-host SIRS zoonosis model using `Catalyst.@reaction_network` DSL.
-"""
-function build_zoonosis_catalyst_network()
-    rn = @reaction_network zoonosis_catalyst begin
-        @parameters nu1 mu1 gamma1 m1 beta nu2 mu2 gamma2 m2 epsilon phi psi
-        nu1, 0 --> X1
-        mu1, X1 --> 0
-        beta, X1 + Y1 --> 2Y1
-        gamma1, Y1 --> 0
-        mu1 + m1, Y1 --> 0
-        nu2, 0 --> X2
-        mu2, X2 --> 0
-        epsilon * beta, X2 + Y1 --> Y2 + Y1
-        phi * beta, X2 + Y2 --> 2Y2
-        psi * beta, X1 + Y2 --> Y1 + Y2
-        gamma2, Y2 --> 0
-        mu2 + m2, Y2 --> 0
-    end
-    return rn
-end
-
-"""
     classify_phylodynamic_reactions(rs::ReactionSystem, infected_species::AbstractVector) -> Vector{PhyloReactionSpec}
 
 Inspect the stoichiometry of each `Reaction` in `rs` on `infected_species` and classify it
@@ -173,72 +94,6 @@ function classify_phylodynamic_reactions(rs::ReactionSystem, infected_species::A
         end
     end
     return specs
-end
-
-function _mtk_u0_and_p(sys_bundle, zp::ZoonosisParams; int_u0::Bool=false)
-    sp = sys_bundle.species
-    pr = sys_bundle.params
-    u0 = int_u0 ? [
-        sp.X1 => round(Int, zp.X1_0),
-        sp.Y1 => round(Int, zp.Y1_0),
-        sp.X2 => round(Int, zp.X2_0),
-        sp.Y2 => round(Int, zp.Y2_0)
-    ] : [
-        sp.X1 => zp.X1_0,
-        sp.Y1 => zp.Y1_0,
-        sp.X2 => zp.X2_0,
-        sp.Y2 => zp.Y2_0
-    ]
-    p = [
-        pr.nu1 => zp.nu1, pr.mu1 => zp.mu1, pr.gamma1 => zp.gamma1, pr.m1 => zp.m1,
-        pr.beta => zp.beta, pr.nu2 => zp.nu2, pr.mu2 => zp.mu2, pr.gamma2 => zp.gamma2,
-        pr.m2 => zp.m2, pr.epsilon => zp.epsilon, pr.phi => zp.phi, pr.psi => zp.psi
-    ]
-    return u0, p
-end
-
-"""
-    simulate_ode_trajectory(zp::ZoonosisParams; tspan=(0.0, zp.t_peak), solver=Tsit5(), saveat=nothing)
-
-Convert the `ModelingToolkit.ReactionSystem` to an `ODESystem` (`Catalyst.ode_model(rs)`)
-and solve the forward ODEs using `OrdinaryDiffEqTsit5` (`Tsit5()`).
-"""
-function simulate_ode_trajectory(
-    zp::ZoonosisParams;
-    tspan::Tuple{Float64,Float64} = (0.0, zp.t_peak),
-    solver = Tsit5(),
-    saveat = nothing,
-    reltol::Float64 = 1e-9,
-    abstol::Float64 = 1e-11
-)
-    bundle = build_zoonosis_reaction_system()
-    odesys = complete(Catalyst.ode_model(bundle.rs))
-    u0, p = _mtk_u0_and_p(bundle, zp; int_u0=false)
-    oprob = ODEProblem(bundle.rs, u0, tspan, p)
-    if saveat === nothing
-        sol = solve(oprob, solver; reltol=reltol, abstol=abstol)
-    else
-        sol = solve(oprob, solver; saveat=saveat, reltol=reltol, abstol=abstol)
-    end
-    return (sol = sol, bundle = bundle, odesys = odesys)
-end
-
-"""
-    simulate_stochastic_trajectory(zp::ZoonosisParams; tspan=(0.0, zp.t_peak), rng=Random.default_rng())
-
-Convert the `ModelingToolkit.ReactionSystem` to a `JumpProblem(rs, u0, tspan, p)`
-and solve the exact Gillespie stochastic trajectory using `JumpProcesses.jl` (`SSAStepper()`).
-"""
-function simulate_stochastic_trajectory(
-    zp::ZoonosisParams;
-    tspan::Tuple{Float64,Float64} = (0.0, zp.t_peak),
-    rng::AbstractRNG = Random.default_rng()
-)
-    bundle = build_zoonosis_reaction_system()
-    u0i, p = _mtk_u0_and_p(bundle, zp; int_u0=true)
-    jprob = JumpProblem(bundle.rs, u0i, tspan, p; rng=rng)
-    jsol = solve(jprob, SSAStepper())
-    return (sol = jsol, bundle = bundle, jprob = jprob)
 end
 
 """
@@ -320,32 +175,72 @@ end
 struct _RxEventRecord
     time::Float64
     rx_idx::Int
-    Y_after::Tuple{Int,Int}
+    Y_after::Vector{Int}
+end
+
+function _infected_indices(rs, infected_species)
+    isempty(infected_species) && throw(ArgumentError("at least one infected species is required"))
+    indices = Int[]
+    spcs = Catalyst.species(rs)
+    for infected in infected_species
+        index = findfirst(s -> isequal(Num(s), Num(infected)), spcs)
+        index === nothing && throw(ArgumentError("infected species $infected is not in the reaction system"))
+        index in indices && throw(ArgumentError("infected species must be distinct"))
+        push!(indices, index)
+    end
+    return indices
+end
+
+function _homochronous_sample_counts(samples, demes, t_end)
+    scfg = samples isa SampleConfiguration ? samples : SampleConfiguration(samples, t_end)
+    for (deme, time) in scfg.sconf
+        deme in demes || throw(ArgumentError("sample deme $deme is not in the infected species"))
+        time == t_end || throw(ArgumentError("SSA tree sampling must be contemporaneous at tspan[2]"))
+    end
+    counts = [count(x -> x[1] == deme, scfg.sconf) for deme in demes]
+    sum(counts) >= 2 || throw(ArgumentError("at least two sampled tips are required"))
+    return counts
 end
 
 """
-    simulate_tracked_ssa(rs::ReactionSystem, infected_species::AbstractVector, u0_map, p_map, tspan; min_final_infected=(1, 0), max_attempts=200, rng=Random.default_rng())
+    simulate_tracked_ssa(rs::ReactionSystem, infected_species, u0_map, p_map, tspan; min_final_infected=nothing, max_attempts=200, rng=Random.default_rng())
 
 Run an exact Gillespie SSA trajectory directly from the `ModelingToolkit.ReactionSystem`'s
 `jumpratelaw`s and `netstoichmat(rs)`, recording every transmission and migration reaction
 event `(time, rx_idx, Y_after)` needed for ReMASTER's backward-in-time tree construction.
+`Y_after` contains all infected populations in the supplied species order.
+Initial counts must be nonnegative integers. Optional `min_final_infected` supplies
+one minimum per deme; the default imposes no survival conditioning.
+Explicitly time-dependent propensities are not supported by this direct SSA.
 """
 function simulate_tracked_ssa(
     rs::ReactionSystem,
     infected_species::AbstractVector,
     u0_map,
     p_map,
-    tspan::Tuple{Float64,Float64};
-    min_final_infected::Tuple{Int,Int} = (1, 0),
+    tspan::Tuple{<:Real,<:Real};
+    min_final_infected = nothing,
     max_attempts::Int = 200,
     rng::AbstractRNG = Random.default_rng()
 )
+    inf_idx = _infected_indices(rs, infected_species)
+    m = length(inf_idx)
+    min_counts = min_final_infected === nothing ? zeros(Int, m) : collect(min_final_infected)
+    length(min_counts) == m && all(x -> x isa Integer && x >= 0, min_counts) ||
+        throw(ArgumentError("min_final_infected must contain one nonnegative integer per deme"))
+    max_attempts > 0 || throw(ArgumentError("max_attempts must be positive"))
+    all(isfinite, tspan) && tspan[1] < tspan[2] ||
+        throw(ArgumentError("tspan must be finite and increasing"))
+    all(pair -> isfinite(last(pair)) && last(pair) >= 0 && isinteger(last(pair)), u0_map) ||
+        throw(ArgumentError("initial population counts must be nonnegative integers"))
     specs = classify_phylodynamic_reactions(rs, infected_species)
     spcs = Catalyst.species(rs)
     ps = Catalyst.parameters(rs)
     t_var = ModelingToolkit.get_iv(rs)
     comb = Catalyst.get_combinatoric_ratelaws(rs)
     jump_laws = [Num(Catalyst.jumpratelaw(sp.rx; combinatoric_ratelaw=comb)) for sp in specs]
+    any(law -> any(v -> isequal(v, t_var), Symbolics.get_variables(law)), jump_laws) &&
+        throw(ArgumentError("time-dependent propensities are not supported by the direct SSA"))
     compiled_props = [Symbolics.build_function(jl, spcs, ps, t_var; expression=Val{false}) for jl in jump_laws]
     net_stoich = Catalyst.netstoichmat(rs)
 
@@ -353,7 +248,6 @@ function simulate_tracked_ssa(
     p_dict = Dict(Num(k) => Float64(v) for (k, v) in p_map)
     u0_vec = [u0_dict[Num(s)] for s in spcs]
     p_vec = [p_dict[Num(pr)] for pr in ps]
-    inf_idx = [findfirst(s -> isequal(Num(s), Num(inf_s)), spcs) for inf_s in infected_species]
     nrx = length(specs)
 
     props = zeros(Float64, nrx)
@@ -361,8 +255,8 @@ function simulate_tracked_ssa(
 
     for attempt in 1:max_attempts
         copyto!(u, u0_vec)
-        t = tspan[1]
-        t_end = tspan[2]
+        t = Float64(tspan[1])
+        t_end = Float64(tspan[2])
         t_hist = Float64[t]
         u_hist = Vector{Int}[copy(u)]
         rx_events = _RxEventRecord[]
@@ -371,10 +265,13 @@ function simulate_tracked_ssa(
         while t < t_end
             tot_rate = 0.0
             @inbounds for r in 1:nrx
-                val = max(0.0, Float64(compiled_props[r](u, p_vec, t)))
+                val = Float64(compiled_props[r](u, p_vec, t))
+                isfinite(val) && val >= 0 ||
+                    throw(DomainError(val, "reaction $r has an invalid SSA propensity"))
                 props[r] = val
                 tot_rate += val
             end
+            isfinite(tot_rate) || throw(DomainError(tot_rate, "total SSA propensity overflowed"))
             tot_rate <= 0.0 && break
             dt = randexp(rng) / tot_rate
             if t + dt > t_end
@@ -398,9 +295,10 @@ function simulate_tracked_ssa(
             @inbounds for s_i in eachindex(u)
                 u[s_i] += net_stoich[s_i, chosen]
             end
+            all(>=(0), u) || throw(DomainError(copy(u), "SSA reaction produced a negative population"))
             role = specs[chosen].role
             if role === :transmission || role === :migration
-                push!(rx_events, _RxEventRecord(t, chosen, (u[inf_idx[1]], u[inf_idx[2]])))
+                push!(rx_events, _RxEventRecord(t, chosen, u[inf_idx]))
             end
             if length(t_hist) == 1 || (t - t_hist[end]) >= 0.05
                 push!(t_hist, t)
@@ -408,9 +306,11 @@ function simulate_tracked_ssa(
             end
         end
 
-        y1_fin = u[inf_idx[1]]
-        y2_fin = u[inf_idx[2]]
-        if y1_fin >= min_final_infected[1] && y2_fin >= min_final_infected[2]
+        if t_hist[end] < t_end
+            push!(t_hist, t_end)
+            push!(u_hist, copy(u))
+        end
+        if all(u[inf_idx] .>= min_counts)
             return (
                 times = t_hist,
                 states = u_hist,
@@ -422,250 +322,6 @@ function simulate_tracked_ssa(
         end
     end
     error("simulate_tracked_ssa did not reach min_final_infected=$min_final_infected in $max_attempts attempts")
-end
-
-"""
-    simulate_remaster_tree(zp::ZoonosisParams; n1::Int=100, n2::Int=100, T_sample::Float64=zp.t_peak, remove_singletons::Bool=true, rng=Random.default_rng())
-
-Simulate an exact epidemiological reaction trajectory and phylogenetic tree from the
-`ModelingToolkit.ReactionSystem` using the **ReMASTER forward-backward algorithm**
-(`StochasticTrajectory` + backward event-by-event lineage coalescence and migration):
-
-1. Builds the `ReactionSystem` via `build_zoonosis_reaction_system()` and classifies all
-   reactions by stoichiometry (`classify_phylodynamic_reactions`).
-2. Simulates the forward Gillespie SSA trajectory on `[0, T_sample]`, recording all
-   transmission and migration reaction events.
-3. Initializes `n1` sampled reservoir (`Y1`) lineages and `n2` sampled human (`Y2`) lineages
-   at `T_sample` (clamping to available infected population if `Y_k(T_sample) < n_k`).
-4. Steps backward through the recorded reaction events from `T_sample` to `0`:
-   - At a within-deme birth reaction `k -> k` (leaving `Y_k` individuals, of which `A_k` are extant sampled lineages):
-     two extant lineages coalesce with hypergeometric probability `A_k*(A_k - 1) / (Y_k*(Y_k - 1))`.
-   - At a cross-deme birth reaction `k -> l` (`k != l`, leaving `Y_l` in `l` and `Y_k` in `k`):
-     the newborn in deme `l` is one of the `A_l` extant lineages with probability `A_l / Y_l`.
-     If so:
-     * With probability `A_k / Y_k`, its parent in deme `k` is also an extant lineage in `k`
-       -> the lineage in `l` transitions to `k` and coalesces with a randomly chosen extant lineage in `k`!
-     * With probability `1 - A_k / Y_k`, its parent in `k` was not yet tracked
-       -> the lineage transitions from deme `l` to deme `k` (creating a singleton state-change node on the full tree)!
-"""
-function simulate_remaster_tree(
-    zp::ZoonosisParams;
-    n1::Int = 100,
-    n2::Int = 100,
-    T_sample::Float64 = zp.t_peak,
-    remove_singletons::Bool = true,
-    rng::AbstractRNG = Random.default_rng()
-)
-    bundle = build_zoonosis_reaction_system()
-    u0i, p = _mtk_u0_and_p(bundle, zp; int_u0=true)
-    min_y2 = zp.epsilon > 0.0 ? min(n2, 40) : 0
-    ssa = simulate_tracked_ssa(
-        bundle.rs, bundle.infected, u0i, p, (0.0, T_sample);
-        min_final_infected = (min(n1, 100), min_y2),
-        rng = rng
-    )
-
-    y1_end = ssa.final_state[2]
-    y2_end = ssa.final_state[4]
-    n1_act = min(n1, y1_end)
-    n2_act = min(n2, y2_end)
-    n_tips = n1_act + n2_act
-    n_tips < 2 && error("Insufficient infected individuals at T_sample to sample >= 2 tips")
-
-    # Nodes: 1:n_tips are tips; internal/singleton nodes appended dynamically during backward pass
-    tip_label = Vector{String}(undef, n_tips)
-    tip_state = Vector{Int}(undef, n_tips)
-    node_state = Int[]
-    node_time = Float64[]
-    edges_p = Int[]
-    edges_c = Int[]
-    edge_len = Float64[]
-
-    extant1 = Int[]
-    extant2 = Int[]
-    for i in 1:n1_act
-        tip_label[i] = "tip_I_$(i)_I"
-        tip_state[i] = 1
-        push!(node_state, 1)
-        push!(node_time, T_sample)
-        push!(extant1, i)
-    end
-    for j in 1:n2_act
-        id = n1_act + j
-        tip_label[id] = "tip_Y_$(j)_Y"
-        tip_state[id] = 2
-        push!(node_state, 2)
-        push!(node_time, T_sample)
-        push!(extant2, id)
-    end
-
-    jumps_12 = 0
-    jumps_21 = 0
-    jtimes_12 = Float64[]
-    jtimes_21 = Float64[]
-    specs = ssa.specs
-
-    # Backward pass through recorded reaction events
-    for ev_idx in length(ssa.rx_events):-1:1
-        (length(extant1) + length(extant2) <= 1) && break
-        ev = ssa.rx_events[ev_idx]
-        sp = specs[ev.rx_idx]
-        sp.role !== :transmission && continue
-        t_ev = ev.time
-        k = sp.parent_deme
-        l = sp.child_deme
-        Y1_curr, Y2_curr = ev.Y_after
-        ext_k = k == 1 ? extant1 : extant2
-        ext_l = l == 1 ? extant1 : extant2
-        Ak = length(ext_k)
-        Al = length(ext_l)
-        Yk = max(Ak, k == 1 ? Y1_curr : Y2_curr)
-        Yl = max(Al, l == 1 ? Y1_curr : Y2_curr)
-
-        if k == l
-            if Ak >= 2 && Yk >= 2
-                p_coal = (Ak * (Ak - 1.0)) / (Yk * (Yk - 1.0))
-                if rand(rng) < p_coal
-                    idx1 = rand(rng, 1:Ak)
-                    u = ext_k[idx1]
-                    deleteat!(ext_k, idx1)
-                    idx2 = rand(rng, 1:(Ak - 1))
-                    v = ext_k[idx2]
-                    deleteat!(ext_k, idx2)
-
-                    push!(node_state, k)
-                    push!(node_time, t_ev)
-                    new_node = length(node_state)
-                    push!(edges_p, new_node); push!(edges_c, u); push!(edge_len, max(1e-8, node_time[u] - t_ev))
-                    push!(edges_p, new_node); push!(edges_c, v); push!(edge_len, max(1e-8, node_time[v] - t_ev))
-                    push!(ext_k, new_node)
-                end
-            end
-        else
-            # Cross-deme transmission: parent in deme k infected child in deme l
-            if Al >= 1 && Yl >= 1
-                p_child_sampled = Al / Yl
-                if rand(rng) < p_child_sampled
-                    idx_c = rand(rng, 1:Al)
-                    child_line = ext_l[idx_c]
-                    deleteat!(ext_l, idx_c)
-
-                    if k == 1 && l == 2
-                        jumps_12 += 1
-                        push!(jtimes_12, t_ev)
-                    elseif k == 2 && l == 1
-                        jumps_21 += 1
-                        push!(jtimes_21, t_ev)
-                    end
-
-                    p_parent_sampled = Yk >= 1 ? (Ak / Yk) : 0.0
-                    if Ak >= 1 && rand(rng) < p_parent_sampled
-                        # Parent in deme k is also an extant sampled lineage -> coalesce in deme k!
-                        idx_p = rand(rng, 1:Ak)
-                        parent_line = ext_k[idx_p]
-                        deleteat!(ext_k, idx_p)
-
-                        push!(node_state, k)
-                        push!(node_time, t_ev)
-                        new_node = length(node_state)
-                        push!(edges_p, new_node); push!(edges_c, parent_line); push!(edge_len, max(1e-8, node_time[parent_line] - t_ev))
-                        push!(edges_p, new_node); push!(edges_c, child_line); push!(edge_len, max(1e-8, node_time[child_line] - t_ev))
-                        push!(ext_k, new_node)
-                    else
-                        # Parent in deme k was not yet tracked -> singleton migration node from l to k
-                        push!(node_state, k)
-                        push!(node_time, t_ev)
-                        singleton_node = length(node_state)
-                        push!(edges_p, singleton_node); push!(edges_c, child_line); push!(edge_len, max(1e-8, node_time[child_line] - t_ev))
-                        push!(ext_k, singleton_node)
-                    end
-                end
-            end
-        end
-    end
-
-    # If any lineages remain uncoalesced at t=0 (e.g., if initial Y1_0 > 1), coalesce remaining at t ~ 0
-    rem_lines = vcat(extant1, extant2)
-    t_rem = isempty(rem_lines) ? 0.0 : minimum(node_time[rem_lines])
-    while length(rem_lines) > 1
-        t_rem = max(0.0, t_rem - 1e-4)
-        u = popfirst!(rem_lines)
-        v = popfirst!(rem_lines)
-        if node_state[u] != node_state[v]
-            if node_state[u] == 1 && node_state[v] == 2
-                jumps_12 += 1
-                push!(jtimes_12, t_rem)
-            else
-                jumps_21 += 1
-                push!(jtimes_21, t_rem)
-            end
-        end
-        push!(node_state, 1)
-        push!(node_time, t_rem)
-        new_node = length(node_state)
-        push!(edges_p, new_node); push!(edges_c, u); push!(edge_len, max(1e-8, node_time[u] - t_rem))
-        push!(edges_p, new_node); push!(edges_c, v); push!(edge_len, max(1e-8, node_time[v] - t_rem))
-        push!(rem_lines, new_node)
-    end
-
-    # Re-index internal nodes so root is n_tips + 1 (standard APE/PhyloTree convention)
-    n_tot = length(node_state)
-    n_int = n_tot - n_tips
-    root_old = rem_lines[1]
-    old_internals = collect((n_tips+1):n_tot)
-    filter!(x -> x != root_old, old_internals)
-    ordered_internals = vcat([root_old], old_internals)
-
-    old_to_new = Dict{Int,Int}()
-    new_node_state = zeros(Int, n_tot)
-    new_node_time = zeros(Float64, n_tot)
-    for i in 1:n_tips
-        old_to_new[i] = i
-        new_node_state[i] = node_state[i]
-        new_node_time[i] = node_time[i]
-    end
-    for (j, old_u) in enumerate(ordered_internals)
-        new_u = n_tips + j
-        old_to_new[old_u] = new_u
-        new_node_state[new_u] = node_state[old_u]
-        new_node_time[new_u] = node_time[old_u]
-    end
-
-    edge_mat = hcat([old_to_new[p] for p in edges_p], [old_to_new[c] for c in edges_c])
-    full_tree = PhyloTree(
-        edge_mat, edge_len, tip_label, tip_state, new_node_state, new_node_time,
-        n_int, jumps_12, jumps_21, sort!(jtimes_12), sort!(jtimes_21)
-    )
-    binary_tree = collapse_singletons(full_tree)
-    return (
-        tree = remove_singletons ? binary_tree : full_tree,
-        full_tree = full_tree,
-        binary_tree = binary_tree,
-        ssa = ssa
-    )
-end
-
-"""
-    simulate_coalescent_tree(zp::ZoonosisParams; n1::Int=100, n2::Int=100, T_sample::Float64=zp.t_peak, rng=Random.default_rng()) -> PhyloTree
-
-Simulate a structured coalescent tree from `zp::ZoonosisParams` using `Coalescent.jl`'s
-`ModelFGY` + `SampleConfiguration` + `SimTree` algorithm and convert to `PhyloTree`.
-"""
-function simulate_coalescent_tree(
-    zp::ZoonosisParams;
-    n1::Int = 100,
-    n2::Int = 100,
-    T_sample::Float64 = zp.t_peak,
-    rng::AbstractRNG = Random.default_rng()
-)::PhyloTree
-    bundle = build_zoonosis_reaction_system()
-    u0, p = _mtk_u0_and_p(bundle, zp; int_u0=false)
-    sp = bundle.species
-    samples = [sp.Y1 => n1, sp.Y2 => n2]
-    mod = ModelFGY(bundle.rs, bundle.infected, u0, (0.0, T_sample), p)
-    scfg = SampleConfiguration(samples, T_sample)
-    st = SimTree(mod, scfg; computedescendants=true, rng=rng)
-    return simtree_to_phylotree(st; T_sample=T_sample)
 end
 
 """
@@ -837,12 +493,11 @@ function simulate_forward_master_tree(
     u0_vec = [u0_dict[Num(s)] for s in spcs]
     p_vec = [p_dict[Num(pr)] for pr in ps]
     m = length(infected_species)
-    inf_idx = [findfirst(s -> isequal(Num(s), Num(inf_s)), spcs) for inf_s in infected_species]
+    inf_idx = _infected_indices(rs, infected_species)
     demes = [_species_name(s) for s in infected_species]
 
-    scfg = samples isa SampleConfiguration ? samples : SampleConfiguration(samples, tspan[2])
-    req_counts = [count(x -> x[1] == demes[k], scfg.sconf) for k in 1:m]
-    min_req = min_final_infected === nothing ? [min(req_counts[k], k == 1 ? 100 : 40) for k in 1:m] : min_final_infected
+    req_counts = _homochronous_sample_counts(samples, demes, tspan[2])
+    min_req = min_final_infected === nothing ? req_counts : min_final_infected
 
     nrx = length(specs)
     props = zeros(Float64, nrx)
@@ -998,17 +653,9 @@ function simulate_forward_master_tree(
             end
         end
 
-        # If multiple initial roots survived, connect them at t_start
-        while length(roots_used) > 1
-            r1 = popfirst!(roots_used)
-            r2 = popfirst!(roots_used)
-            push!(f_parent, 0)
-            push!(f_deme, 1)
-            push!(f_time, max(0.0, t_start - 1e-4))
-            new_r = length(f_parent)
-            push!(f_children, [r1, r2])
-            push!(roots_used, new_r)
-        end
+        length(roots_used) == 1 || throw(ArgumentError(
+            "$(length(roots_used)) sampled founder lineages remain at tspan[1]; " *
+            "their common ancestry is not specified by the reaction history"))
         orig_root = roots_used[1]
 
         # Skip redundant degree-1 chain above MRCA unless state changed
@@ -1165,32 +812,8 @@ function SciMLBase.solve(prob::TreeProblem, stepper::ForwardSSAStepper; rng::Abs
 end
 
 function SciMLBase.solve(prob::TreeProblem, stepper::ReMASTERStepper; rng::AbstractRNG=Random.default_rng())
-    # ReMASTER backward event tracing directly on prob.rs
-    demes = [_species_name(s) for s in prob.infected]
-    n1 = count(x -> x[1] == demes[1], prob.samples.sconf)
-    n2 = length(demes) >= 2 ? count(x -> x[1] == demes[2], prob.samples.sconf) : 0
-    p_dict = Dict(_species_name(k) => Float64(v) for (k, v) in prob.p)
-    u0_dict = Dict(_species_name(k) => Float64(v) for (k, v) in prob.u0)
-    zp = ZoonosisParams(;
-        X1_0 = get(u0_dict, "X1", 9999.0),
-        Y1_0 = get(u0_dict, "Y1", 1.0),
-        X2_0 = get(u0_dict, "X2", 1000.0),
-        Y2_0 = get(u0_dict, "Y2", 0.0),
-        nu1 = get(p_dict, "nu1", 2.74),
-        mu1 = get(p_dict, "mu1", 2.74e-4),
-        gamma1 = get(p_dict, "gamma1", 0.1),
-        m1 = get(p_dict, "m1", 0.0),
-        beta = get(p_dict, "beta", 10.0 * (2.74e-4 + 0.1) / 10000.0),
-        nu2 = get(p_dict, "nu2", 1000.0 / (70.0 * 365.0)),
-        mu2 = get(p_dict, "mu2", 1.0 / (70.0 * 365.0)),
-        gamma2 = get(p_dict, "gamma2", 0.01),
-        m2 = get(p_dict, "m2", 0.1),
-        epsilon = get(p_dict, "epsilon", 0.1),
-        phi = get(p_dict, "phi", 0.0),
-        psi = get(p_dict, "psi", 0.0),
-        t_peak = prob.tspan[2]
-    )
-    res = simulate_remaster_tree(zp; n1=n1, n2=n2, T_sample=prob.tspan[2], remove_singletons=stepper.remove_singletons, rng=rng)
+    res = simulate_remaster_tree(prob.rs, prob.infected, prob.u0, prob.tspan,
+        prob.p, prob.samples; remove_singletons=stepper.remove_singletons, rng=rng)
     return res.tree
 end
 
@@ -1230,5 +853,3 @@ end
 const ForwardBackwardSSAStepper = ReMASTERStepper
 """Alias for [`simulate_forward_master_tree`](@ref); accepts the same arguments and keywords."""
 const simulate_forward_lineage_tree = simulate_forward_master_tree
-"""Alias for [`simulate_remaster_tree`](@ref); accepts the same arguments and keywords."""
-const simulate_forward_backward_tree = simulate_remaster_tree

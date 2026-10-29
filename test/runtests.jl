@@ -1,5 +1,6 @@
 using Test
 using Phylodynamics
+using Phylodynamics.Zoonosis
 using ModelingToolkit
 using Catalyst
 using SciMLBase
@@ -8,6 +9,7 @@ using DataFrames
 using CSV
 
 include("documentation.jl")
+include("generic_framework.jl")
 include("coalescent_moments.jl")
 include("coalescent_symbolics.jl")
 

@@ -192,58 +192,6 @@ function Base.show(io::IO, x::ModelFGY)
     print(io, "ModelFGY(\"$(x.modelname)\", demes=$(x.demes), nondemes=$(x.nondemes), t=($(x.t0), $(x.tfin)))")
 end
 
-"""
-    ModelFGY(params::ZoonosisParams; modelname::String="zoonosis") -> ModelFGY
-
-Construct a `Coalescent.jl` `ModelFGY` for the two-host zoonosis model (Models 1, 2, or 3),
-where `demes = ["Y1", "Y2"]` and `nondemes = ["X1", "X2"]`.
-"""
-function ModelFGY(p::ZoonosisParams; modelname::String="zoonosis", t0::Real=0.0, tfin::Real=p.t_peak)
-    brxns = [
-        CoalescentReaction("Y1", "Y1", RXN_BIRTH, :(beta * X1 * Y1);
-            rate_fn = (u, par, t) -> par[:beta] * max(u[3], 0.0) * max(u[1], 0.0)),
-        CoalescentReaction("Y1", "Y2", RXN_BIRTH, :(epsilon * beta * X2 * Y1);
-            rate_fn = (u, par, t) -> par[:epsilon] * par[:beta] * max(u[4], 0.0) * max(u[1], 0.0)),
-        CoalescentReaction("Y2", "Y2", RXN_BIRTH, :(phi * beta * X2 * Y2);
-            rate_fn = (u, par, t) -> par[:phi] * par[:beta] * max(u[4], 0.0) * max(u[2], 0.0)),
-        CoalescentReaction("Y2", "Y1", RXN_BIRTH, :(psi * beta * X1 * Y2);
-            rate_fn = (u, par, t) -> par[:psi] * par[:beta] * max(u[3], 0.0) * max(u[2], 0.0))
-    ]
-    migrxns = CoalescentReaction[]
-    deathrxns = [
-        CoalescentReaction("Y1", RXN_DEATH, :((gamma1 + mu1 + m1) * Y1);
-            rate_fn = (u, par, t) -> (par[:gamma1] + par[:mu1] + par[:m1]) * max(u[1], 0.0)),
-        CoalescentReaction("Y2", RXN_DEATH, :((gamma2 + mu2 + m2) * Y2);
-            rate_fn = (u, par, t) -> (par[:gamma2] + par[:mu2] + par[:m2]) * max(u[2], 0.0))
-    ]
-    nondemerxns = [
-        CoalescentReaction("X1", RXN_DYNVAR,
-            :(nu1 - beta * X1 * Y1 - psi * beta * X1 * Y2 - mu1 * X1);
-            rate_fn = (u, par, t) -> par[:nu1] - par[:beta] * u[3] * u[1] - par[:psi] * par[:beta] * u[3] * u[2] - par[:mu1] * u[3]),
-        CoalescentReaction("X2", RXN_DYNVAR,
-            :(nu2 - epsilon * beta * X2 * Y1 - phi * beta * X2 * Y2 - mu2 * X2);
-            rate_fn = (u, par, t) -> par[:nu2] - par[:epsilon] * par[:beta] * u[4] * u[1] - par[:phi] * par[:beta] * u[4] * u[2] - par[:mu2] * u[4])
-    ]
-    demes = ["Y1", "Y2"]
-    nondemes = ["X1", "X2"]
-    initial = Dict(
-        "Y1" => p.Y1_0,
-        "Y2" => p.Y2_0,
-        "X1" => p.X1_0,
-        "X2" => p.X2_0
-    )
-    parameters = Dict(
-        "nu1" => p.nu1, "mu1" => p.mu1, "gamma1" => p.gamma1, "m1" => p.m1,
-        "beta" => p.beta, "nu2" => p.nu2, "mu2" => p.mu2, "gamma2" => p.gamma2,
-        "m2" => p.m2, "epsilon" => p.epsilon, "phi" => p.phi, "psi" => p.psi
-    )
-    return ModelFGY(;
-        modelname=modelname, birthrxn=brxns, migrationrxn=migrxns,
-        deathrxn=deathrxns, nondemerxn=nondemerxns, demes=demes, nondemes=nondemes,
-        initial=initial, t0=Float64(t0), tfin=Float64(tfin), parameters=parameters
-    )
-end
-
 # Evaluate a CoalescentReaction rate given state vector u (ordered [demes..., nondemes...]), parameter Dict, and time t
 function _eval_rxn_rate(
     rxn::CoalescentReaction,
@@ -363,6 +311,7 @@ Base.@kwdef mutable struct SimTree
     descendants::Union{Nothing,BitMatrix} = nothing
     daughters::Union{Nothing,Vector{Tuple{Int,Int,Int,Int}}} = nothing
     demes::Union{Nothing,Vector{String}} = nothing
+    deme_names::Vector{String} = String[]
     true_jumps_12::Int = 0
     true_jumps_21::Int = 0
     true_jump_times_12::Vector{Float64} = Float64[]
@@ -404,8 +353,7 @@ function SimTree(
     for e in events
         if e.type == SAMPLE
             sample_idx += 1
-            suffix = (e.source == "Y2" || e.source == "Y") ? "Y" : "I"
-            push!(tiplabs, "t.$(e.source).$(sample_idx)_$(suffix)")
+            push!(tiplabs, "t.$(e.source).$(sample_idx)_$(e.source)")
             push!(shs, e.height)
         end
     end
@@ -479,10 +427,10 @@ function SimTree(
             # Record cross-deme transmission jump at coalescence if source != sink
             if e.source != e.sink
                 t_fwd = max(0.0, mst - e.height)
-                if e.source == "Y1" && e.sink == "Y2"
+                if length(model.demes) >= 2 && e.source == model.demes[1] && e.sink == model.demes[2]
                     jumps_12 += 1
                     push!(jtimes_12, t_fwd)
-                elseif e.source == "Y2" && e.sink == "Y1"
+                elseif length(model.demes) >= 2 && e.source == model.demes[2] && e.sink == model.demes[1]
                     jumps_21 += 1
                     push!(jtimes_21, t_fwd)
                 end
@@ -522,10 +470,10 @@ function SimTree(
                 deleteat!(e1, iv)
                 push!(extant[e.source], v)
                 t_fwd = max(0.0, mst - e.height)
-                if e.source == "Y1" && e.sink == "Y2"
+                if length(model.demes) >= 2 && e.source == model.demes[1] && e.sink == model.demes[2]
                     jumps_12 += 1
                     push!(jtimes_12, t_fwd)
-                elseif e.source == "Y2" && e.sink == "Y1"
+                elseif length(model.demes) >= 2 && e.source == model.demes[2] && e.sink == model.demes[1]
                     jumps_21 += 1
                     push!(jtimes_21, t_fwd)
                 end
@@ -536,7 +484,7 @@ function SimTree(
     return SimTree(;
         parent=parent, child=child, n=n, nNode=nNode,
         edgelength=edgelength, heights=heights, tiplabs=tiplabs, shs=shs,
-        descendants=desc, daughters=daughters, demes=demes,
+        descendants=desc, daughters=daughters, demes=demes, deme_names=copy(model.demes),
         true_jumps_12=jumps_12, true_jumps_21=jumps_21,
         true_jump_times_12=sort!(jtimes_12), true_jump_times_21=sort!(jtimes_21)
     )
@@ -781,6 +729,9 @@ end
 Convert a `Coalescent.jl` `SimTree` into a `PhyloTree` (root = `n + 1`, APE node numbering).
 """
 function simtree_to_phylotree(st::SimTree; T_sample::Float64=12.85, demes::Union{Nothing,Vector{String}}=nothing)
+    if demes === nothing && !isempty(st.deme_names)
+        demes = st.deme_names
+    end
     n = st.n
     nNode = st.nNode
     nedges = length(st.parent)

@@ -1,5 +1,6 @@
 using Test
 using Phylodynamics
+using Phylodynamics.Zoonosis
 using Symbolics
 using CSV
 using DataFrames
@@ -96,7 +97,7 @@ end
         layout.programs[:camin_sokal_12].leaf_classes[1]]]
 
     reference = similar(regenerated)
-    Phylodynamics._zoonosis_coalescent_rhs!(reference, z, p, [X1, Y1, X2, Y2];
+    Phylodynamics.Zoonosis._zoonosis_coalescent_rhs!(reference, z, p, [X1, Y1, X2, Y2];
         positive=identity, descendant_mean=/)
     rows = NamedTuple[]
     for index in 1:37

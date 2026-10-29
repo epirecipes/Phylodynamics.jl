@@ -22,6 +22,7 @@ We consider a two-host SIRS model with an animal reservoir (susceptible $X_1$, i
 
 ```{julia}
 using Phylodynamics
+using Phylodynamics.Zoonosis
 using ModelingToolkit
 using Catalyst
 using Symbolics

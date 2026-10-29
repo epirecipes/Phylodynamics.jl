@@ -23,6 +23,7 @@ This vignette demonstrates how `parsimony_counts` and `fit_mk2_ml` behave across
 
 ```{julia}
 using Phylodynamics
+using Phylodynamics.Zoonosis
 using CairoMakie
 using DataFrames
 using StableRNGs

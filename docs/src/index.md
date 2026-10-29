@@ -19,13 +19,17 @@ The examples throughout this site run during every documentation build:
 
 ```@example quickstart
 using Phylodynamics
-using StableRNGs
 
-tree = simulate_coalescent_tree(model2_params(); n1=20, n2=10, rng=StableRNG(42))
-counts = parsimony_counts(tree)
-@assert ntips(tree) == 30
-(tips=ntips(tree), directional_changes=counts.J_pars_1to2,
-    fitch_changes=counts.J_pars_fitch)
+F = [3.0 0.4 0.1; 0.2 2.0 0.3; 0.1 0.2 1.0]
+G = zeros(3, 3)
+Y = [40.0, 30.0, 20.0]
+history = TFGY([5.0, 0.0], [F, F], [G, G], [Y, Y],
+    [zeros(3), zeros(3)], ["deme_a", "deme_b", "deme_c"])
+result = solve_coalescent_odes(history, [5, 4, 3];
+    states=(:jumps, :fitch))
+@assert length(result.summary.lineages) == 3
+(lineages=result.summary.lineages, jumps=result.summary.jumps,
+    parsimony=result.summary.fitch_score)
 ```
 
 Follow the [tutorials](vignettes/index.md) for complete executed analyses, or consult the
@@ -33,6 +37,10 @@ Follow the [tutorials](vignettes/index.md) for complete executed analyses, or co
 
 The [multi-deme coalescent equations](coalescent-moments.md) explain selectable
 analytical state groups, directed Sankoff parsimony, and symbolic verification.
+
+The [zoonosis study](zoonosis.md) is a separate, explicitly imported submodule,
+`Phylodynamics.Zoonosis`. Its parameter types, study sweeps, and publication
+figures are not part of the generic namespace.
 
 The [source repository](https://github.com/epirecipes/Phylodynamics.jl) includes
 installation instructions, tests, and scripts to reproduce the study figures.

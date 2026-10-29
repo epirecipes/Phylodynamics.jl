@@ -1,52 +1,16 @@
 # ==============================================================================
 # types_and_trees.jl
-# Model parameters, PhyloTree representation, Newick / ReMASTER extended Newick
+# PhyloTree representation, Newick / ReMASTER extended Newick
 # parser & writer, singleton collapsing, cherry assortativity, and Sackin index.
 # ==============================================================================
 
 """
-    ZoonosisParams
-
-Epidemiological and sampling parameters for the two-host SIRS zoonosis model
-(reservoir host deme 1: `X1, Y1`; human host deme 2: `X2, Y2`).
-"""
-Base.@kwdef struct ZoonosisParams
-    N1_0::Float64   = 10000.0
-    X1_0::Float64   = 9999.0
-    Y1_0::Float64   = 1.0
-    N2_0::Float64   = 1000.0
-    X2_0::Float64   = 1000.0
-    Y2_0::Float64   = 0.0
-    nu1::Float64    = 2.74
-    mu1::Float64    = 2.74e-4
-    gamma1::Float64 = 0.1
-    m1::Float64     = 0.0
-    beta::Float64   = 10.0 * (2.74e-4 + 0.1) / 10000.0
-    nu2::Float64    = 1000.0 / (70.0 * 365.0)
-    mu2::Float64    = 1.0 / (70.0 * 365.0)
-    gamma2::Float64 = 0.01
-    m2::Float64     = 0.1
-    epsilon::Float64 = 0.1
-    phi::Float64     = 0.0
-    psi::Float64     = 0.0
-    t_peak::Float64  = 12.85
-end
-
-"""Canonical Model 1 (Pure Zoonotic Spillover: epsilon=0.1, phi=0, psi=0)."""
-model1_params(; kwargs...) = ZoonosisParams(; epsilon=0.1, phi=0.0, psi=0.0, kwargs...)
-
-"""Canonical Model 2 (Sustained Human-to-Human Spread: epsilon=0.01, phi=4.0, psi=0)."""
-model2_params(; kwargs...) = ZoonosisParams(; epsilon=0.01, phi=4.0, psi=0.0, kwargs...)
-
-"""Canonical Model 3 (Bidirectional / Reverse Zoonosis: epsilon=0.01, phi=4.0, psi=4.0)."""
-model3_params(; kwargs...) = ZoonosisParams(; epsilon=0.01, phi=4.0, psi=4.0, kwargs...)
-
-"""
     PhyloTree
 
-Rooted phylogenetic tree with tip states (1 = reservoir `Y1`/`I`, 2 = human `Y2`/`Y`),
-optional internal node deme states, node times, and ground-truth directional host jumps
-along the sampled genealogy.
+Rooted phylogenetic tree with integer tip states indexing arbitrary demes,
+optional internal node deme states, and node times. The `true_jumps_12`,
+`true_jumps_21` and corresponding time fields are pairwise diagnostics for
+states 1 and 2, not a restriction on the number or identity of demes.
 
 Conventions match APE `phylo`:
 - Tips are numbered `1:ntips`.
@@ -135,6 +99,8 @@ ReMASTER `[&type="..."]` metadata annotation.
 """
 function infer_tip_state(label::AbstractString, meta_type::AbstractString="")
     if !isempty(meta_type)
+        state = tryparse(Int, meta_type)
+        state !== nothing && state > 0 && return state
         if occursin("Y2", meta_type) || occursin("sampleY", meta_type) || meta_type == "Y" || meta_type == "2"
             return 2
         elseif occursin("Y1", meta_type) || occursin("sampleI", meta_type) || meta_type == "I" || meta_type == "1"
@@ -506,7 +472,7 @@ function write_newick(tree::PhyloTree; include_metadata::Bool=false)
     function fmt_node(u::Int, bl::Union{Nothing,Float64})
         meta = ""
         if include_metadata && tree.node_state[u] > 0
-            st_str = tree.node_state[u] == 2 ? "Y2" : "Y1"
+            st_str = string(tree.node_state[u])
             meta = @sprintf("[&type=\"%s\",time=%.6f]", st_str, tree.node_time[u])
         end
         if u <= n_tips

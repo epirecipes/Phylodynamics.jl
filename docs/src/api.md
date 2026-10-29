@@ -2,7 +2,9 @@
 
 Documentation for exported types and functions, generated from the package
 docstrings. The [vignettes](vignettes/index.md) demonstrate how to combine these
-building blocks in complete analyses.
+building blocks in complete analyses. Model-specific parameter types and
+publication utilities are documented separately in the
+[zoonosis study API](zoonosis.md).
 
 ```@autodocs
 Modules = [Phylodynamics]

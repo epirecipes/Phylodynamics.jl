@@ -21,6 +21,7 @@ Unlike parsimony or time-homogeneous Mk2 trait models, the **Volz (2012) structu
 
 ```{julia}
 using Phylodynamics
+using Phylodynamics.Zoonosis
 using ModelingToolkit
 using Catalyst
 using CairoMakie

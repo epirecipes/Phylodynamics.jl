@@ -7,6 +7,7 @@
 # ==============================================================================
 
 using Phylodynamics
+using Phylodynamics.Zoonosis
 using StableRNGs
 using DataFrames
 using CSV

@@ -1,5 +1,6 @@
 using Test
 using Phylodynamics
+using Phylodynamics.Zoonosis
 using LinearAlgebra
 using Catalyst
 using DataFrames
@@ -172,7 +173,7 @@ end
     z[[15, 18, 19, 22, 23, 27]] .= 1
     du = similar(z)
     p = (beta=0.5, epsilon=1.0, phi=0.0, psi=0.0)
-    Phylodynamics._zoonosis_coalescent_rhs!(du, z, p, [0.0, 2.0, 1.0, 2.0])
+    Phylodynamics.Zoonosis._zoonosis_coalescent_rhs!(du, z, p, [0.0, 2.0, 1.0, 2.0])
     @test du[15] + du[16] ≈ du[1] ≈ 0.25
     @test du[17] + du[18] ≈ du[2] ≈ -0.5
     @test du[19] + du[20] ≈ du[1]
@@ -181,16 +182,16 @@ end
         y = copy(z)
         y[offset:(offset + 3)] .= [1.0, 2.0, 3.0, 4.0]
         y[1:2] .= [3.0, 7.0]
-        Phylodynamics._zoonosis_coalescent_rhs!(du, y, p, [0.0, 2.0, 1.0, 2.0])
-        derived = Phylodynamics._general_parsimony_4state_derivs(
+        Phylodynamics.Zoonosis._zoonosis_coalescent_rhs!(du, y, p, [0.0, 2.0, 1.0, 2.0])
+        derived = Phylodynamics.Zoonosis._general_parsimony_4state_derivs(
             1.0, 2.0, 3.0, 4.0, 2.0, 2.0, 0.0, 1.0, 0.0, 0.0, weight)
         @test collect(derived[1:4]) ≈ du[offset:(offset + 3)]
     end
     y = copy(z)
     y[23:28] .= [0.1, 0.3, 0.2, 0.4, 0.2, 0.1]
     y[1:2] .= [0.6, 0.7]
-    Phylodynamics._zoonosis_coalescent_rhs!(du, y, p, [0.0, 2.0, 1.0, 2.0])
-    derived = Phylodynamics._fitch_parsimony_6state_derivs(
+    Phylodynamics.Zoonosis._zoonosis_coalescent_rhs!(du, y, p, [0.0, 2.0, 1.0, 2.0])
+    derived = Phylodynamics.Zoonosis._fitch_parsimony_6state_derivs(
         y[23:28]..., 2.0, 2.0, 0.0, 1.0, 0.0, 0.0)
     @test collect(derived[1:6]) ≈ du[23:28]
     @test derived[7] ≈ du[33]

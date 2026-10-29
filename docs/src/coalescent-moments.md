@@ -2,7 +2,7 @@
 
 `solve_coalescent_odes(tfgy, samples; states=...)` integrates analytical
 coalescent moments for any number of demes. Unlike the two-host
-`ZoonosisParams` method, it allocates only the selected groups and their
+`Phylodynamics.Zoonosis.ZoonosisParams` method, it allocates only the selected groups and their
 dependencies. These are **mean-field closure equations**, not exact
 expectations of the finite-population stochastic process.
 
@@ -108,7 +108,7 @@ or establish exact finite-population expectations.
 
 Integration stops at ``\sum_i A_i=1`` if reached. Otherwise it ends at `t0` and
 `summary.reached_mrca` is false: the statistics then describe a partial ancestral
-forest, not a complete tree. The older `ZoonosisParams` method still uses its
+forest, not a complete tree. The study-specific `ZoonosisParams` method still uses its
 original nearest-saved-time summary convention.
 
 ## Event-derived equations

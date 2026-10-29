@@ -2,7 +2,7 @@
 # phydynr_phyland.jl
 # Complete Julia implementation of phydynR (https://github.com/emvolz-phylodynamics/phydynR)
 # and phyland (https://github.com/emvolz-phylodynamics/phyland):
-# - DatedTree, TFGY, build_demographic_process, zoonosis_demographic_process
+# - DatedTree, TFGY, build_demographic_process
 # - eventTimes2extant, update_alpha0, rco_finite_size_correction2!
 # - solvePikL0 (PL1), solvePikL1 (PL2), solveQAL (QL), solveQfwd0
 # - colik / colik_pik / colik_pik_fgy
@@ -816,54 +816,6 @@ function build_demographic_process(base_model::ModelFGY)
         return TFGY(times_rev, Fs, Gs, Ys, deaths, copy(mod.demes))
     end
     return dm
-end
-
-"""
-    zoonosis_demographic_process(base_params::ZoonosisParams = model1_params()) -> Function
-
-Return a `phydynR` demographic process function `dm(theta, x0, t0, t1; res=1000)` for the
-two-host zoonosis model.
-"""
-function zoonosis_demographic_process(base_params::ZoonosisParams = model1_params())
-    base_mod = ModelFGY(base_params)
-    raw_dm = build_demographic_process(base_mod)
-    function dm_zoonosis(
-        theta::AbstractDict = Dict{String,Float64}(),
-        x0::Union{Nothing,AbstractDict} = nothing,
-        t0::Real = base_mod.t0,
-        t1::Real = base_mod.tfin;
-        res::Int = 1000,
-        solver = Tsit5()
-    )::TFGY
-        theta_ode = Dict{String,Float64}(String(k) => Float64(v) for (k, v) in theta)
-        psi_val = get(theta_ode, "psi", base_params.psi)
-        theta_ode["psi"] = 0.0
-        tfgy = raw_dm(theta_ode, x0, t0, t1; res=res, solver=solver)
-        if psi_val > 0.0
-            mod_tmp = deepcopy(base_mod)
-            mod_tmp.t0 = Float64(t0)
-            mod_tmp.tfin = Float64(t1)
-            for (k, v) in theta_ode
-                mod_tmp.parameters[k] = v
-            end
-            if x0 !== nothing
-                for (k, v) in x0
-                    mod_tmp.initial[String(k)] = Float64(v)
-                end
-            end
-            sol = solveodes(mod_tmp; solver=solver, res=res)
-            beta_val = get(mod_tmp.parameters, "beta", base_params.beta)
-            nt = length(tfgy.times)
-            for idx in 1:nt
-                u = sol.u[nt - idx + 1]
-                X1_val = max(0.0, u[3])
-                Y2_val = max(0.0, u[2])
-                tfgy.Fs[idx][2, 1] = psi_val * beta_val * X1_val * Y2_val
-            end
-        end
-        return tfgy
-    end
-    return dm_zoonosis
 end
 
 """

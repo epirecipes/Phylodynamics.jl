@@ -27,6 +27,8 @@ jobs:
       - uses: julia-actions/cache@v2
       - name: Install documentation dependencies
         run: julia --project=docs -e 'using Pkg; Pkg.develop(PackageSpec(path=pwd())); Pkg.instantiate()'
+      - name: Check generic framework and study namespace
+        run: julia --project=docs test/generic_framework.jl
       - name: Execute tutorials and build complete documentation
         run: julia --project=docs docs/make.jl
       - uses: actions/upload-pages-artifact@v3

@@ -19,6 +19,7 @@ All three simulation engines share the same SciML-style `TreeProblem(rs, infecte
 
 ```{julia}
 using Phylodynamics
+using Phylodynamics.Zoonosis
 using ModelingToolkit
 using Catalyst
 using SciMLBase

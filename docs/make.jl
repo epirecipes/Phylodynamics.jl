@@ -1,5 +1,6 @@
 using Documenter
 using Phylodynamics
+using Phylodynamics.Zoonosis
 
 include("vignettes.jl")
 tutorials = generate_vignette_pages(joinpath(@__DIR__, "..", "vignettes"),
@@ -7,7 +8,7 @@ tutorials = generate_vignette_pages(joinpath(@__DIR__, "..", "vignettes"),
 
 makedocs(
     sitename = "Phylodynamics.jl",
-    modules = [Phylodynamics],
+    modules = [Phylodynamics, Phylodynamics.Zoonosis],
     authors = "Simon D. W. Frost",
     doctest = true,
     checkdocs = :exports,
@@ -20,6 +21,7 @@ makedocs(
         "Tutorials" => ["Overview" => "vignettes/index.md", tutorials.pages...],
         "Multi-deme coalescent equations" => "coalescent-moments.md",
         "API reference" => "api.md",
+        "Zoonosis study and migration" => "zoonosis.md",
     ],
 )
 

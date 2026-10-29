@@ -19,3 +19,5 @@ The authoritative tutorial sources are the Quarto documents in
 The build converts their Julia cells to `@example` blocks and executes them
 against the checked-out package; it does not publish pre-rendered HTML outputs.
 Each tutorial shares state between its cells but has its own execution namespace.
+Tutorials 1–5 explicitly import `Phylodynamics.Zoonosis` for their study models;
+tutorial 6 uses only the generic framework with custom compartmental models.

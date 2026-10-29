@@ -4,6 +4,14 @@ A Julia package for forward and backward phylodynamic simulation, analytical str
 
 **Documentation:** [Vignettes and API reference](https://epirecip.es/Phylodynamics.jl/).
 
+The core API is model-independent: supply a reaction system, its infected
+species, initial conditions, parameter map, and samples, or a `TFGY` demographic
+history. No `ZoonosisParams` is required. The original two-host study is now
+separate: add **`using Phylodynamics.Zoonosis`** for its presets, sweeps,
+study-specific inference, and publication figures. Those names are no longer
+available from `using Phylodynamics` alone; see the
+[migration guide](https://epirecip.es/Phylodynamics.jl/zoonosis/).
+
 ---
 
 ## Key Features
@@ -28,11 +36,11 @@ A Julia package for forward and backward phylodynamic simulation, analytical str
 
 4. **Selectable Multi-Deme Coalescent & Parsimony ODEs (`solve_coalescent_odes`)**
    - Accepts a `TFGY` trajectory or a Catalyst/ModelingToolkit reaction system, with optional lineage, directional-jump, coalescence, branch-length, cherry, Sackin, Fitch, and directed/weighted Sankoff state groups. Parsimony closure is opt-in and bounded by explicit state budgets; observed character labels can group multiple demographic demes.
-   - Retains the two-host, 37-state `ZoonosisParams` interface for Models 1–3. Symbolics.jl regenerates all 37 derivatives from the general event equations, and a local-venv SymPy verifier independently checks the algebra and small-tree Sankoff scores.
+   - `Phylodynamics.Zoonosis` supplies the two-host, 37-state specialization for Models 1–3. Symbolics.jl regenerates all 37 derivatives from the general event equations, and a local-venv SymPy verifier independently checks the algebra and small-tree Sankoff scores.
    - **Correction:** the legacy directional Camin-Sokal class equations previously failed to conserve lineage counts. Those terms are fixed; old directional-parsimony summaries need regeneration. See the [derivation and verification guide](https://epirecip.es/Phylodynamics.jl/coalescent-moments/).
 
 5. **Publication Figures via `CairoMakie.jl`**
-   - `generate_all_figures()` produces all summary figures (`fig1`–`fig9` in `.pdf` and `.png`) and CSV tables in `julia_output/`.
+   - After `using Phylodynamics.Zoonosis`, `generate_all_figures()` reproduces the study's summary figures (`fig1`–`fig9` in `.pdf` and `.png`) and CSV tables in `julia_output/`.
 
 ---
 

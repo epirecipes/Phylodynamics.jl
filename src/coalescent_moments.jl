@@ -332,7 +332,8 @@ ODE blocks; `layout.programs` records cost messages, leaf classes and merge tabl
 store each unordered off-diagonal count in both symmetric entries.
 
 These are deterministic moment-closure equations, not exact stochastic expectations.
-The existing `ZoonosisParams` method retains its two-host result schema.
+The `Phylodynamics.Zoonosis` submodule supplies the study-specific
+`ZoonosisParams` specialization with its two-host result schema.
 """
 function solve_coalescent_odes(tfgy::TFGY, samples::AbstractVector{<:Real};
     states = (:lineages,), character_states = collect(1:length(tfgy.demes)),

@@ -1,0 +1,127 @@
+---
+title: "5. Structured coalescent inference and ancestral character estimation"
+subtitle: "Phylodynamics.jl vignettes"
+author: "Simon D. W. Frost"
+date: today
+---
+
+## Overview
+
+Unlike parsimony or time-homogeneous Mk2 trait models, the **Volz (2012) structured coalescent** relates branch coalescent and migration hazards directly to the time-varying epidemiological birth matrix $F(t)$, migration matrix $G(t)$, and deme prevalences $Y(t)$.
+
+`Phylodynamics.jl` provides a complete suite of structured coalescent likelihood and ancestral state reconstruction tools:
+
+- **`DatedTree(tree; demes, sampleTimes, sampleStates)`**: Constructs a dated genealogy with tip state probability annotations.
+- **`build_demographic_process(rs, infected, u0, tspan, p)`**: Builds a callable demographic process `dm(theta, x0, t0, t1; res)` directly from a `ModelingToolkit.ReactionSystem`.
+- **`colik(bdt, theta, dm; likelihood = :PL2 | :PL1 | :QL)`**: Evaluates the structured coalescent log-likelihood using any of the three lineage-state integration approximations (`solvePikL1`, `solvePikL0`, or `solveQAL`).
+- **`ace(bdt, theta, dm)`**: Performs forward-backward Ancestral Character Estimation (`solveQfwd0`) to compute posterior deme probabilities at all internal nodes.
+- **`island_coalescent_ml(tree; ...)`**, **`confint_island_coalescent`**, and **`boot_island_coalescent`**: Fits an equilibrium constant-population structured coalescent island model.
+
+## Building a demographic process from a `ReactionSystem`
+
+```{julia}
+using Phylodynamics
+using ModelingToolkit
+using Catalyst
+using CairoMakie
+using DataFrames
+using StableRNGs
+using Printf
+
+bundle = build_zoonosis_reaction_system()
+sp = bundle.species
+pr = bundle.params
+zp2 = model2_params()
+
+u0 = [sp.X1 => zp2.X1_0, sp.Y1 => zp2.Y1_0, sp.X2 => zp2.X2_0, sp.Y2 => zp2.Y2_0]
+p  = [pr.nu1 => zp2.nu1, pr.mu1 => zp2.mu1, pr.gamma1 => zp2.gamma1, pr.m1 => zp2.m1,
+      pr.beta => zp2.beta, pr.nu2 => zp2.nu2, pr.mu2 => zp2.mu2, pr.gamma2 => zp2.gamma2,
+      pr.m2 => zp2.m2, pr.epsilon => zp2.epsilon, pr.phi => zp2.phi, pr.psi => zp2.psi]
+
+dm = build_demographic_process(bundle.rs, [sp.Y1, sp.Y2], u0, (0.0, zp2.t_peak), p)
+```
+
+Given a simulated phylogeny `t2`, we wrap it in a `DatedTree` and compare the `:PL2`, `:PL1`, and `:QL` likelihood approximations of `colik`:
+
+```{julia}
+t1 = simulate_coalescent_tree(model1_params(); n1 = 100, n2 = 10, rng = StableRNG(101))
+t2 = simulate_coalescent_tree(model2_params(); n1 = 100, n2 = 10, rng = StableRNG(202))
+t3 = simulate_coalescent_tree(model3_params(); n1 = 100, n2 = 30, rng = StableRNG(42))
+
+bdt2 = DatedTree(t2; demes = ["Y1", "Y2"], minEdgeLength = 1e-5)
+theta_true = Dict("epsilon" => 0.01, "phi" => 4.0, "psi" => 0.0)
+
+DataFrame(
+    Approximation = [":PL2 (solvePikL1)", ":PL1 (solvePikL0)", ":QL (solveQAL)"],
+    LogLikelihood = [
+        colik(bdt2, theta_true, dm; res = 300, timeOfOriginBoundaryCondition = false, likelihood = :PL2),
+        colik(bdt2, theta_true, dm; res = 300, timeOfOriginBoundaryCondition = false, likelihood = :PL1),
+        colik(bdt2, theta_true, dm; res = 300, timeOfOriginBoundaryCondition = false, likelihood = :QL)
+    ]
+)
+```
+
+## Profile likelihoods and hypothesis tests for $\phi$ (human spread) and $\psi$ (reverse zoonosis)
+
+Using `profile_structured_coalescent(t1, t2, t3)`, we compute 1D profile log-likelihood curves over the human-to-human transmission multiplier $\phi$ (testing $H_0: \phi = 0$), the reverse zoonosis multiplier $\psi$ (testing $H_0: \psi = 0$), and the 2D $(\epsilon, \phi)$ surface:
+
+```{julia}
+prof = profile_structured_coalescent(t1, t2, t3; likelihood = :PL2)
+fig_prof = plot_fig7_structured_coalescent_profiles(prof; outdir = mktempdir())
+fig_prof
+```
+
+- On **Model 1** (true $\phi = 0$, Panel A), the profile log-likelihood peaks at the boundary $\hat{\phi} = 0.0$ and decreases monotonically, yielding $\text{LRT}_{21} = 0$.
+- On **Model 2** (true $\phi = 4.0, \psi = 0$, Panel B), $\phi = 0$ is rejected by $> 17$ log-likelihood units ($2\Delta\ell = 34.6, p < 10^{-8}$) and the profile peaks at $\hat{\phi} = 4.0$, while the reverse-zoonosis profile (Panel C, dashed orange) peaks at $\hat{\psi} = 0.0$.
+- On **Model 3** (true $\phi = 4.0, \psi = 4.0$, Panel C, solid green), the null hypothesis $\psi = 0$ is rejected by $\Delta\ell = -7.74$ ($2\Delta\ell = 15.48, p < 10^{-4}$).
+
+## Forward-backward Ancestral Character Estimation (`ace`)
+
+Calling `ace(bdt, theta, dm)` runs the upward coalescent pass followed by the downward transition matrix pass (`solveQfwd0`) to compute posterior host-state probabilities `bdt.acestates` (`m × (n + Nnode)`) at every internal node of the phylogeny:
+
+```{julia}
+bdt2_ace = ace(bdt2, theta_true, zoonosis_demographic_process(model2_params());
+    res = 300, timeOfOriginBoundaryCondition = false, likelihood = :PL2)
+
+n_tips = bdt2_ace.n
+int_nodes = (n_tips + 1):(n_tips + bdt2_ace.Nnode)
+node_t_fwd = bdt2_ace.maxSampleTime .- bdt2_ace.heights[int_nodes]
+p_human_post = bdt2_ace.acestates[2, int_nodes]
+true_int_state = t2.node_state[int_nodes]
+
+fig_ace = Figure(size = (760, 380), fontsize = 12)
+ax_ace = Axis(fig_ace[1, 1];
+    title = "Posterior P(Human Deme Y₂) at Internal Nodes (Model 2)",
+    xlabel = "Internal node forward time t (years)",
+    ylabel = "Posterior probability P(state = Y₂)"
+)
+idx_res = findall(==(1), true_int_state)
+idx_hum = findall(==(2), true_int_state)
+scatter!(ax_ace, node_t_fwd[idx_res], p_human_post[idx_res];
+    color = :royalblue, markersize = 8, label = "True internal node state = Reservoir (Y₁)")
+scatter!(ax_ace, node_t_fwd[idx_hum], p_human_post[idx_hum];
+    color = :crimson, marker = :utriangle, markersize = 10, label = "True internal node state = Human (Y₂)")
+hlines!(ax_ace, [0.5]; color = :gray50, linestyle = :dash)
+axislegend(ax_ace; position = :lt, framevisible = true)
+fig_ace
+```
+
+## Equilibrium island-model inference (`island_coalescent_ml`)
+
+When demographic trajectories are unknown and demes are approximated as constant-size islands with migration rates $\mu_{kl}$ and effective population sizes $N_{e,k}$, `island_coalescent_ml`, `confint_island_coalescent`, and `boot_island_coalescent` fit the equilibrium structured coalescent model:
+
+```{julia}
+fit_island = island_coalescent_ml(t2; maxiters = 100, likelihood = :QL)
+println("Converged log-likelihood: ", round(fit_island.loglik, digits = 3))
+println("Expected directional jumps matrix: ", round.(fit_island.expected_jumps, digits = 2))
+DataFrame(
+    Parameter = collect(keys(fit_island.coef)),
+    Estimate = round.(collect(values(fit_island.coef)), digits = 4)
+)
+```
+
+And the internal-node ancestral character table `fit_island.ace` returned by `island_coalescent_ml`:
+
+```{julia}
+first(fit_island.ace, 8)
+```

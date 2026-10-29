@@ -1,0 +1,147 @@
+---
+title: "2. Simulating phylogenies: deterministic coalescent, forward lineage SSA, and forward-backward reaction trees"
+subtitle: "Phylodynamics.jl vignettes"
+author: "Simon D. W. Frost"
+date: today
+---
+
+## Overview
+
+A central design goal of `Phylodynamics.jl` is to allow users to simulate transmission trees from a single `ModelingToolkit.ReactionSystem` using either:
+
+1. **`CoalescentStepper()`** (*Deterministic backward-in-time structured coalescent*): Solves the deterministic ODE system forward in time and integrates the Volz (2012) Markovian structured coalescent hazard backward in time using `OrdinaryDiffEq` `ContinuousCallback`s.
+2. **`ForwardSSAStepper()`** (*Forward-in-time individual-lineage stochastic simulation*): Runs an exact Gillespie SSA while tracking every individual infected host as a live lineage in `active_nodes[k]`, branching on transmission events ($k \to l$), recording state transitions on migration events, removing lineages on recovery/death, and pruning to the sampled tips at $T_{\text{sample}}$.
+3. **`ForwardBackwardSSAStepper()`** (*Forward-backward stochastic reaction tree simulation*): Runs an exact forward Gillespie SSA recording reaction events and reconstructs the sampled genealogy backward in time via hypergeometric event sampling, yielding both the full singleton-annotated reaction tree (`[&type="Y1",time=...]`) and the collapsed binary tree.
+
+## Formulating a `TreeProblem` with `Pair` syntax
+
+All three simulation engines share the same SciML-style `TreeProblem(rs, infected_species, u0, tspan, p, samples)` interface:
+
+```{julia}
+using Phylodynamics
+using ModelingToolkit
+using Catalyst
+using SciMLBase
+using CairoMakie
+using DataFrames
+using StableRNGs
+using Printf
+
+bundle = build_zoonosis_reaction_system()
+sp = bundle.species
+pr = bundle.params
+
+function make_tree_problem(zp::ZoonosisParams; n1::Int = 60, n2::Int = 30)
+    u0 = [sp.X1 => zp.X1_0, sp.Y1 => zp.Y1_0, sp.X2 => zp.X2_0, sp.Y2 => zp.Y2_0]
+    p  = [pr.nu1 => zp.nu1, pr.mu1 => zp.mu1, pr.gamma1 => zp.gamma1, pr.m1 => zp.m1,
+          pr.beta => zp.beta, pr.nu2 => zp.nu2, pr.mu2 => zp.mu2, pr.gamma2 => zp.gamma2,
+          pr.m2 => zp.m2, pr.epsilon => zp.epsilon, pr.phi => zp.phi, pr.psi => zp.psi]
+    samples = [sp.Y1 => n1, sp.Y2 => n2]
+    return TreeProblem(bundle.rs, [sp.Y1, sp.Y2], u0, (0.0, zp.t_peak), p, samples)
+end
+
+prob_m2 = make_tree_problem(model2_params(); n1 = 60, n2 = 30)
+```
+
+## Solving a `TreeProblem` with all three steppers
+
+We can solve `prob_m2` with each of the three steppers by changing only the solver argument to `solve`:
+
+```{julia}
+rng = StableRNG(2026)
+
+tree_coal = solve(prob_m2, CoalescentStepper(); rng = rng)
+tree_fwd  = solve(prob_m2, ForwardSSAStepper(); rng = rng)
+tree_fb   = solve(prob_m2, ForwardBackwardSSAStepper(); rng = rng)
+
+DataFrame(
+    Engine = ["CoalescentStepper", "ForwardSSAStepper", "ForwardBackwardSSAStepper"],
+    Tips = [ntips(tree_coal), ntips(tree_fwd), ntips(tree_fb)],
+    True_J12 = [tree_coal.true_jumps_12, tree_fwd.true_jumps_12, tree_fb.true_jumps_12],
+    Parsimony_CS12 = [parsimony_counts(tree_coal).J_pars_1to2, parsimony_counts(tree_fwd).J_pars_1to2, parsimony_counts(tree_fb).J_pars_1to2],
+    Cherry_r = round.([cherry_assortativity(tree_coal).r, cherry_assortativity(tree_fwd).r, cherry_assortativity(tree_fb).r], digits = 3),
+    Sackin_IS_norm = round.([sackin_index(tree_coal).IS_norm, sackin_index(tree_fwd).IS_norm, sackin_index(tree_fb).IS_norm], digits = 3)
+)
+```
+
+## Comparing tree topologies across Models 1, 2, and 3
+
+Next, let us simulate phylogenies ($n_1 = 80$ reservoir tips, $n_2 = 40$ human tips) across Models 1, 2, and 3 and plot them side by side. Blue branches denote reservoir lineages (`Y1`) and red branches denote human lineages (`Y2`):
+
+```{julia}
+t1 = solve(make_tree_problem(model1_params(); n1 = 80, n2 = 40), CoalescentStepper(); rng = StableRNG(10))
+t2 = solve(make_tree_problem(model2_params(); n1 = 80, n2 = 40), CoalescentStepper(); rng = StableRNG(20))
+t3 = solve(make_tree_problem(model3_params(); n1 = 80, n2 = 40), CoalescentStepper(); rng = StableRNG(30))
+
+fig = Figure(size = (1100, 430), fontsize = 12)
+for (col, (mtitle, tr)) in enumerate([
+    ("Model 1: Pure Spillover", t1),
+    ("Model 2: With Human Spread", t2),
+    ("Model 3: With Reverse Zoonosis", t3)
+])
+    bt, x, y = Phylodynamics._tree_layout_coords(tr)
+    pc = parsimony_counts(bt)
+    ch = cherry_assortativity(bt)
+    sub = @sprintf("J*₁₂=%d, J*₂₁=%d | J⁽⁰⁾=%d, J_F=%d | r=%.2f",
+        bt.true_jumps_12, bt.true_jumps_21, pc.J_pars_1to2, pc.J_pars_fitch, ch.r)
+    ax = Axis(fig[1, col];
+        title = "$mtitle\n$sub",
+        xlabel = "Time from root (years)",
+        ylabel = col == 1 ? "Sampled tips" : "",
+        yticklabelsvisible = false,
+        yticksvisible = false
+    )
+    for e in 1:size(bt.edge, 1)
+        p_node = bt.edge[e, 1]
+        c_node = bt.edge[e, 2]
+        st_c = bt.node_state[c_node] > 0 ? bt.node_state[c_node] : (c_node <= ntips(bt) ? bt.tip_state[c_node] : 1)
+        col_e = st_c == 2 ? :crimson : :royalblue
+        lines!(ax, [x[p_node], x[p_node], x[c_node]], [y[p_node], y[c_node], y[c_node]]; color = col_e, linewidth = 1.3)
+    end
+    idx1 = findall(==(1), bt.tip_state)
+    idx2 = findall(==(2), bt.tip_state)
+    scatter!(ax, x[idx1], y[idx1]; color = :royalblue, markersize = 5, label = "Reservoir (Y₁)")
+    scatter!(ax, x[idx2], y[idx2]; color = :crimson, markersize = 5, label = "Human (Y₂)")
+    if col == 1
+        axislegend(ax; position = :lt, framevisible = true, labelsize = 10)
+    end
+end
+fig
+```
+
+## Full singleton reaction trees vs. collapsed binary trees (`ForwardBackwardSSAStepper`)
+
+Both `simulate_forward_lineage_tree` and `simulate_forward_backward_tree` retain:
+
+- `full_tree`: the full reaction tree containing degree-2 singleton nodes at the exact timestamps where a lineage jumps between host species (`true_jump_times_12`, `true_jump_times_21`), and
+- `binary_tree`: the collapsed binary tree obtained via `collapse_singletons(full_tree)`, which is what standard phylogenetic inference observes from sequence data.
+
+```{julia}
+sim_m3 = simulate_forward_backward_tree(model3_params(); n1 = 50, n2 = 25, rng = StableRNG(42))
+println("Full reaction tree total nodes:     ", ntotal_nodes(sim_m3.full_tree))
+println("Collapsed binary tree total nodes:  ", ntotal_nodes(sim_m3.binary_tree))
+println("True 1 -> 2 spillover jump times:   ", round.(sim_m3.binary_tree.true_jump_times_12, digits = 2))
+println("True 2 -> 1 reverse jump times:     ", round.(sim_m3.binary_tree.true_jump_times_21, digits = 2))
+```
+
+## Lower-level `ModelFGY` / `SimTree` API and patristic distance matrices
+
+Users can also construct `ModelFGY`, `SampleConfiguration`, and `SimTree` objects directly and compute pairwise patristic distance matrices via `distancematrix`:
+
+```{julia}
+mod = ModelFGY(model2_params())
+scfg = SampleConfiguration([("Y1", 12.85) for _ in 1:25] ∪ [("Y2", 12.85) for _ in 1:15])
+st = SimTree(mod, scfg; computedescendants = true, rng = StableRNG(99))
+D = distancematrix(st)
+
+fig_d = Figure(size = (520, 420), fontsize = 12)
+ax_d = Axis(fig_d[1, 1];
+    title = "Patristic Distance Matrix (1–25: Reservoir, 26–40: Human)",
+    xlabel = "Tip index",
+    ylabel = "Tip index",
+    yreversed = true
+)
+hm = heatmap!(ax_d, 1:40, 1:40, D; colormap = :viridis)
+Colorbar(fig_d[1, 2], hm; label = "Patristic distance (years)")
+fig_d
+```

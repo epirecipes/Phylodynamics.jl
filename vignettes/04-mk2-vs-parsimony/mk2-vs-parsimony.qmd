@@ -1,0 +1,138 @@
+---
+title: "4. Ancestral state reconstruction: parsimony priors versus Mk2 maximum likelihood"
+subtitle: "Phylodynamics.jl vignettes"
+author: "Simon D. W. Frost"
+date: today
+---
+
+## Overview
+
+Phylogeographic and host-jump analyses routinely reconstruct ancestral states on fixed time-trees using either:
+
+1. **Maximum parsimony** (`parsimony_counts`), which minimizes the total number of host switches under a specified directional flow prior:
+   - **Prior 1 ($1 \to 2$ Camin–Sokal)**: irreversible animal $\to$ human transitions ($J^{(0)}$),
+   - **Prior 2 ($2 \to 1$ Reverse Camin–Sokal)**: irreversible human $\to$ animal transitions ($J^{(1)}$),
+   - **Prior 3 (Bidirectional Fitch)**: unconstrained $1 \leftrightarrow 2$ transitions ($J_F = J_{F,12} + J_{F,21}$); or
+2. **Continuous-time Markov chain ("mugration" / Mk2) maximum likelihood** (`fit_mk2_ml`), which models host state as a neutral trait evolving along the branches of the phylogeny with generator
+   $$Q = \begin{pmatrix} -q_{12} & q_{12} \\ q_{21} & -q_{21} \end{pmatrix},$$
+   fitted via Felsenstein's pruning algorithm and paired with conditional stochastic character mapping to estimate expected branch jumps and jump times.
+
+This vignette demonstrates how `parsimony_counts` and `fit_mk2_ml` behave across Models 1, 2, and 3, why Mk2 transition rate estimates $\hat{q}_{12}$ and $\hat{q}_{21}$ scale in *opposite directions* with reservoir sample size $n_1$, and how inferred jump times compare against true transmission times.
+
+## Fitting parsimony and Mk2 ML on simulated phylogenies
+
+```{julia}
+using Phylodynamics
+using CairoMakie
+using DataFrames
+using StableRNGs
+using Statistics
+using Printf
+
+rng = StableRNG(2026)
+t1 = simulate_coalescent_tree(model1_params(); n1 = 100, n2 = 50, rng = rng)
+t2 = simulate_coalescent_tree(model2_params(); n1 = 100, n2 = 50, rng = rng)
+t3 = simulate_coalescent_tree(model3_params(); n1 = 100, n2 = 50, rng = rng)
+
+rows = NamedTuple[]
+for (mname, tr) in [("Model 1 (Spillover)", t1), ("Model 2 (Human Spread)", t2), ("Model 3 (Reverse Zoonosis)", t3)]
+    pc = parsimony_counts(tr)
+    mk = fit_mk2_ml(tr; n_maps = 100, rng = rng)
+    push!(rows, (
+        Model = mname,
+        True_J12 = tr.true_jumps_12,
+        True_J21 = tr.true_jumps_21,
+        CS_1to2 = pc.J_pars_1to2,
+        CS_2to1 = pc.J_pars_2to1,
+        Fitch = pc.J_pars_fitch,
+        Mk2_Unidir = round(mk.J_ml_unidir, digits = 2),
+        Mk2_Bidir_12 = round(mk.J_ml_bidir_12, digits = 2),
+        Mk2_Bidir_21 = round(mk.J_ml_bidir_21, digits = 2),
+        q12_hat = round(mk.q_unidir, digits = 4),
+        LRT_bidir = round(mk.LRT_bidir, digits = 2)
+    ))
+end
+DataFrame(rows)
+```
+
+Under unidirectional $1 \to 2$ Mk2 (`q21 = 0`, root in state 1), any internal node with at least one state-1 descendant must have ancestral state 1 with probability 1. Consequently, unidirectional Mk2 conditional stochastic mapping recovers the exact $1 \to 2$ Camin–Sokal parsimony count ($J_{\text{ML,unidir}} = J^{(0)}$).
+
+## Opposite sample-size scaling of Mk2 rates $\hat{q}_{12}$ and $\hat{q}_{21}$
+
+Because Mk2 treats transitions as proportional to branch length rather than incidence and prevalence, the maximum likelihood rate estimate scales approximately as the inferred number of jumps divided by total tree length $L_{\text{tree}}(n_1, n_2)$:
+
+- Under the forward $1 \to 2$ prior, $J^{(0)}(n_1, n_2)$ saturates at the number of human clades while reservoir tree length $L_1(n_1)$ grows rapidly with $n_1$, so $\hat{q}_{12} \approx J^{(0)} / L_1(n_1)$ **decreases** by nearly two orders of magnitude as $n_1$ increases from $1$ to $100$.
+- Under the reverse $2 \to 1$ prior, $J^{(1)}(n_1, n_2)$ grows with $n_1$ (each sampled reservoir clade requires its own $2 \to 1$ jump from a human backbone), so $\hat{q}_{21}$ **increases** with $n_1$.
+
+We can verify this directly across reservoir sample sizes $n_1 \in [1, 100]$ ($n_2 = 10$):
+
+```{julia}
+ode_n1_grid = [1, 2, 5, 10, 20, 40, 70, 100]
+scaling_rows = NamedTuple[]
+
+for (mname, zp) in [("Model 1", model1_params()), ("Model 2", model2_params()), ("Model 3", model3_params())]
+    for n1_v in ode_n1_grid
+        s = solve_coalescent_odes(zp; n1 = Float64(n1_v), n2 = 10.0).summary
+        q12_approx = s.J_pars_1to2 / max(s.L1_true, 1.0)
+        q21_approx = s.J_pars_2to1 / max(s.L2_true, 1.0)
+        push!(scaling_rows, (
+            model = mname, n1 = n1_v,
+            log_q12 = log10(q12_approx),
+            log_q21 = log10(q21_approx),
+            J_1to2 = s.J_pars_1to2,
+            J_2to1 = s.J_pars_2to1
+        ))
+    end
+end
+df_scale = DataFrame(scaling_rows)
+
+fig = Figure(size = (980, 400), fontsize = 12)
+ax1 = Axis(fig[1, 1];
+    title = "(A) Opposite Scaling of Mk2 Rates with Reservoir Sample Size n₁",
+    xlabel = "Reservoir sample size n₁ (with n₂ = 10)",
+    ylabel = "log₁₀(inferred Mk2 transition rate)"
+)
+ax2 = Axis(fig[1, 2];
+    title = "(B) Parsimony Jump Counts J⁽⁰⁾ vs J⁽¹⁾ across n₁ (n₂ = 10)",
+    xlabel = "Reservoir sample size n₁ (with n₂ = 10)",
+    ylabel = "Expected parsimony jumps"
+)
+
+cols = Dict("Model 1" => :royalblue, "Model 2" => :crimson, "Model 3" => :seagreen)
+for mname in ["Model 1", "Model 2", "Model 3"]
+    sub = filter(r -> r.model == mname, df_scale)
+    lines!(ax1, sub.n1, sub.log_q12; color = cols[mname], linewidth = 2.5, label = "$mname: log₁₀(q̂₁₂) [1→2]")
+    lines!(ax1, sub.n1, sub.log_q21; color = cols[mname], linewidth = 2.2, linestyle = :dash, label = "$mname: log₁₀(q̂₂₁) [2→1]")
+    lines!(ax2, sub.n1, sub.J_1to2; color = cols[mname], linewidth = 2.5, label = "$mname: Prior 1 (1→2)")
+    lines!(ax2, sub.n1, sub.J_2to1; color = cols[mname], linewidth = 2.2, linestyle = :dash, label = "$mname: Prior 2 (2→1)")
+end
+axislegend(ax1; position = :rc, framevisible = false, labelsize = 9)
+axislegend(ax2; position = :lt, framevisible = false, labelsize = 9)
+fig
+```
+
+## Comparing true transmission jump times vs. Mk2 mapped jump times
+
+When `fit_mk2_ml` samples jump times along transition branches under a time-homogeneous rate $\hat{q}_{12}$, jumps on long external/internal branches are spread uniformly-to-exponentially over the branch rather than concentrated near the epidemic peak where prevalence $Y_1(t)$ is highest:
+
+```{julia}
+sim3 = simulate_forward_backward_tree(model3_params(); n1 = 100, n2 = 30, rng = StableRNG(2026))
+mk3 = fit_mk2_ml(sim3.binary_tree; n_maps = 100, rng = StableRNG(2026))
+
+fig_t = Figure(size = (760, 380), fontsize = 12)
+ax_t = Axis(fig_t[1, 1];
+    title = "True Spillover Times vs. Unidirectional Mk2 Stochastic Mapping Times",
+    xlabel = "Forward epidemic time t (years)",
+    ylabel = "Density"
+)
+if !isempty(sim3.binary_tree.true_jump_times_12)
+    hist!(ax_t, sim3.binary_tree.true_jump_times_12; bins = 12, normalization = :pdf,
+        color = (:royalblue, 0.55), strokewidth = 1, strokecolor = :royalblue, label = "True 1→2 jump times")
+end
+if !isempty(mk3.uni_jump_times)
+    hist!(ax_t, mk3.uni_jump_times; bins = 12, normalization = :pdf,
+        color = (:crimson, 0.45), strokewidth = 1, strokecolor = :crimson, label = "Mk2 mapped jump times")
+end
+axislegend(ax_t; position = :lt, framevisible = false)
+fig_t
+```

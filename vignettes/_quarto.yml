@@ -1,0 +1,21 @@
+project:
+  type: default
+  render:
+    - "*/*.qmd"
+
+engine: julia
+julia:
+  exeflags: ["--project=@."]
+
+format:
+  html:
+    toc: true
+    code-fold: false
+    embed-resources: true
+    theme: cosmo
+    fig-width: 8
+    fig-height: 4.5
+
+execute:
+  echo: true
+  warning: false

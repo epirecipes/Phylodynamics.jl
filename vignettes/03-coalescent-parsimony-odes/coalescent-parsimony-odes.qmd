@@ -1,0 +1,132 @@
+---
+title: "3. Analytical structured coalescent ODEs for parsimony and tree shape"
+subtitle: "Phylodynamics.jl vignettes"
+author: "Simon D. W. Frost"
+date: today
+---
+
+## Overview
+
+While stochastic tree simulations capture realization-to-realization variability, analytical expectations for ancestral state reconstruction can be derived by coupling the forward epidemiological ODEs with a system of **37 backward-in-time differential equations** (`solve_coalescent_odes`).
+
+Going backward in time $s = T - t \in [0, T]$ from sampling time $T$ with initial sample sizes $(n_1, n_2)$, `solve_coalescent_odes` simultaneously integrates:
+
+- **Extant lineage counts** $A_1(s), A_2(s)$ and **true directional lineage jumps** $J^*_{12}(s), J^*_{21}(s)$;
+- **Three parsimony directional flow priors**:
+  1. **Prior 1 ($1 \to 2$ Camin–Sokal, $w = 0$)**: $4$-state system $(A_{11}, A_{12}, A_{21}, A_{22})$ where internal nodes with mixed $(1, 2)$ descendants resolve to the reservoir state $1$, accumulating $J^{(0)}(s)$ forward jumps.
+  2. **Prior 2 ($2 \to 1$ Reverse Camin–Sokal, $w = 1$)**: $4$-state system $(B_{11}, B_{12}, B_{21}, B_{22})$ where mixed $(1, 2)$ coalescences resolve to state $2$, accumulating $J^{(1)}(s)$ reverse jumps.
+  3. **Prior 3 (Unconstrained bidirectional Fitch)**: $6$-state system $(F_{11}, F_{12}, F_{1*}, F_{21}, F_{22}, F_{2*})$ tracking unambiguous state-$1$, state-$2$, and ambiguous $\{1, 2\}$ (`*`) lineages in each deme, accumulating minimum unordered changes $J_F(s)$.
+- **Cherry counts** $(C_{11}, C_{12}, C_{22})$ and **Newman's cherry assortativity** $r$;
+- **Expected Sackin tree imbalance** $I_S$ and its Yule-normalized excess $I_S^* = (I_S - \mathbb{E}_{\text{Yule}}[I_S]) / \mathbb{E}_{\text{Yule}}[I_S]$.
+
+## Canonical comparison across Models 1, 2, and 3
+
+At balanced peak sampling ($n_1 = 100, n_2 = 100, T = 12.85$), `compute_canonical_summary()` reveals how each epidemiological regime leaves a distinct signature across the three parsimony priors and tree-shape diagnostics:
+
+```{julia}
+using Phylodynamics
+using CairoMakie
+using DataFrames
+using Printf
+
+df_canon = compute_canonical_summary(; n1 = 100.0, n2 = 100.0, T_sample = 12.85)
+df_canon[:, [:model, :J_true_12, :J_true_21, :J_pars_1to2, :J_pars_2to1, :J_pars_fitch, :r_assort, :IS_norm]]
+```
+
+Key theoretical insights immediately visible from the ODE table:
+
+1. **Coalescence below the jump**: Even under pure spillover (Model 1, where $J^*_{12} = 100$), two independent human spillover lineages can migrate backward into the reservoir and coalesce with each other *before* coalescing with a sampled reservoir lineage, causing $J^{(0)} = 78.1 < 100$ and $J_F = 66.6 < 100$.
+2. **Prior-reversal inflation**: Under Model 2 ($\phi = 4.0$), where human tips form large monophyletic clades ($r = 0.784$), reversing the parsimony prior to $2 \to 1$ ($J^{(1)} = 53.8$) nearly doubles the inferred number of jumps compared to the $1 \to 2$ prior ($J^{(0)} = 26.5$).
+3. **Topological detection of reverse zoonosis**: Under Models 1 and 2 ($\psi = 0$), $J^{(0)} \approx J_F$, whereas under Model 3 ($\psi = 4.0$), animal tips nested inside human clades force extra $1 \to 2$ steps under unidirectional Camin–Sokal parsimony, creating a strict excess $\Delta J = J^{(0)} - J_F = 30.90 - 27.74 = +3.16 > 0$.
+
+## Effect of sampling time $T$ and sample fractions $(n_1, n_2)$
+
+We can sweep over sampling time $T \in [4, 25]$ and sample sizes $(n_1, n_2) \in [10, 300]$ using `sweep_sampling_time()` and `sweep_sampling_fraction()`:
+
+```{julia}
+df_time = sweep_sampling_time(; n1 = 100.0, n2 = 100.0)
+sw_n = sweep_sampling_fraction(; T_sample = 12.85)
+
+fig = Figure(size = (1080, 720), fontsize = 12)
+
+for (col, mname) in enumerate(["Model 1", "Model 2", "Model 3"])
+    sub = filter(r -> r.model == mname, df_time)
+    ax = Axis(fig[1, col];
+        title = "($(Char('A' + col - 1))) $mname: Jumps vs Sampling Time T",
+        xlabel = "Sampling time T (years)",
+        ylabel = col == 1 ? "Expected jump count" : ""
+    )
+    lines!(ax, sub.T_sample, sub.J_true_total; color = :black, linewidth = 2.4, label = "True total J*")
+    lines!(ax, sub.T_sample, sub.J_pars_1to2; color = :royalblue, linewidth = 2.2, linestyle = :dash, label = "Prior 1 (1→2 CS)")
+    lines!(ax, sub.T_sample, sub.J_pars_2to1; color = :crimson, linewidth = 2.2, linestyle = :dashdot, label = "Prior 2 (2→1 CS)")
+    lines!(ax, sub.T_sample, sub.J_pars_fitch; color = :seagreen, linewidth = 2.2, label = "Prior 3 (Fitch)")
+    vlines!(ax, [12.85]; color = :gray50, linestyle = :dot)
+    if col == 1
+        axislegend(ax; position = :lt, framevisible = false, labelsize = 9)
+    end
+end
+
+ax_n2 = Axis(fig[2, 1];
+    title = "(D) Fitch Recovery J_F / J* vs Human Sample n₂",
+    xlabel = "Human sample size n₂ (n₁ = 100)",
+    ylabel = "Recovery ratio J_F / J*"
+)
+ax_n1 = Axis(fig[2, 2];
+    title = "(E) Fitch Recovery J_F / J* vs Reservoir Sample n₁",
+    xlabel = "Reservoir sample size n₁ (n₂ = 100)",
+    ylabel = "Recovery ratio J_F / J*"
+)
+ax_r = Axis(fig[2, 3];
+    title = "(F) Cherry Assortativity r vs Reservoir Sample n₁",
+    xlabel = "Reservoir sample size n₁ (n₂ = 100)",
+    ylabel = "Cherry assortativity r"
+)
+
+colors = Dict("Model 1" => :royalblue, "Model 2" => :crimson, "Model 3" => :seagreen)
+for mname in ["Model 1", "Model 2", "Model 3"]
+    s_n2 = filter(r -> r.model == mname, sw_n.df_n2)
+    s_n1 = filter(r -> r.model == mname, sw_n.df_n1)
+    lines!(ax_n2, s_n2.n2, s_n2.ratio_fitch_total; color = colors[mname], linewidth = 2.4, label = mname)
+    lines!(ax_n1, s_n1.n1, s_n1.ratio_fitch_total; color = colors[mname], linewidth = 2.4, label = mname)
+    lines!(ax_r,  s_n1.n1, s_n1.r_assort; color = colors[mname], linewidth = 2.4, label = mname)
+end
+axislegend(ax_n2; position = :lb, framevisible = false, labelsize = 10)
+fig
+```
+
+## Sweeping human-to-human $R_{0,22}$ and reverse zoonosis $\psi$
+
+Finally, `sweep_R22()` and `sweep_psi()` trace how increasing within-human transmission $R_{0,22}$ decreases true spillover count $J^*_{12}$ while increasing parsimony accuracy, and how increasing reverse zoonosis $\psi$ opens the gap $\Delta J = J^{(0)} - J_F$:
+
+```{julia}
+df_r22 = sweep_R22()
+df_psi = sweep_psi()
+
+fig2 = Figure(size = (980, 380), fontsize = 12)
+
+sub_r22 = filter(r -> r.epsilon == 0.01, df_r22)
+ax1 = Axis(fig2[1, 1];
+    title = "(A) Jump Counts vs Human R₀,₂₂ (ε = 0.01, ψ = 0)",
+    xlabel = "Human reproduction number R₀,₂₂",
+    ylabel = "Expected jumps (n₁ = n₂ = 100)"
+)
+lines!(ax1, sub_r22.R22, sub_r22.J_true_12; color = :black, linewidth = 2.5, label = "True J*₁₂")
+lines!(ax1, sub_r22.R22, sub_r22.J_pars_1to2; color = :royalblue, linewidth = 2.2, linestyle = :dash, label = "Prior 1 (1→2 CS)")
+lines!(ax1, sub_r22.R22, sub_r22.J_pars_2to1; color = :crimson, linewidth = 2.2, linestyle = :dashdot, label = "Prior 2 (2→1 CS)")
+lines!(ax1, sub_r22.R22, sub_r22.J_pars_fitch; color = :seagreen, linewidth = 2.2, label = "Prior 3 (Fitch)")
+vlines!(ax1, [1.0]; color = :gray50, linestyle = :dot)
+axislegend(ax1; position = :rt, framevisible = false, labelsize = 10)
+
+ax2 = Axis(fig2[1, 2];
+    title = "(B) Reverse Zoonosis Sweep over ψ (ε = 0.01, φ = 4)",
+    xlabel = "Reverse zoonosis multiplier ψ",
+    ylabel = "Expected jump count"
+)
+lines!(ax2, df_psi.psi, df_psi.J_true_total; color = :black, linewidth = 2.5, label = "True total (J*₁₂ + J*₂₁)")
+lines!(ax2, df_psi.psi, df_psi.J_true_12; color = :gray40, linewidth = 2.0, linestyle = :dot, label = "True forward J*₁₂")
+lines!(ax2, df_psi.psi, df_psi.J_true_21; color = :purple, linewidth = 2.2, label = "True reverse J*₂₁")
+lines!(ax2, df_psi.psi, df_psi.J_pars_1to2; color = :royalblue, linewidth = 2.2, linestyle = :dash, label = "Prior 1 (1→2 CS)")
+lines!(ax2, df_psi.psi, df_psi.J_pars_fitch; color = :seagreen, linewidth = 2.2, label = "Prior 3 (Fitch)")
+axislegend(ax2; position = :lt, framevisible = false, labelsize = 10)
+fig2
+```

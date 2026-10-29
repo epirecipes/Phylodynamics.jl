@@ -1,0 +1,171 @@
+---
+title: "1. Reaction networks, stoichiometry, and epidemic dynamics"
+subtitle: "Phylodynamics.jl vignettes"
+author: "Simon D. W. Frost"
+date: today
+---
+
+## Overview
+
+In structured phylodynamics, the genealogy of a pathogen sample is shaped by four classes of epidemiological reactions:
+
+1. **Transmission (birth) reactions** $F_{kl}(t)$, where an infected individual in deme $k$ transmits to a susceptible host in deme $l$, increasing the total number of infected individuals by $+1$.
+2. **Migration (stage-transition) reactions** $G_{kl}(t)$ ($k \ne l$), where an infected individual moves from deme $k$ to deme $l$, leaving the total number of infected individuals unchanged ($0$).
+3. **Removal (recovery/mortality) reactions** $D_k(t)$, where an infected individual leaves deme $k$, decreasing the total number of infected individuals by $-1$.
+4. **Demographic turnover** in uninfected compartments, which alters susceptible availability without directly creating or removing pathogen lineages.
+
+Rather than requiring bespoke YAML files or hand-coded string rate expressions, `Phylodynamics.jl` works directly with reaction systems defined in `ModelingToolkit.jl` and `Catalyst.jl`. Given a `ReactionSystem` and a list of infected species `[Y1, Y2, ...]`, `classify_phylodynamic_reactions` inspects the substrate and product stoichiometry of each reaction to partition the network automatically into `:transmission`, `:migration`, `:removal`, and `:demographic` processes.
+
+## Defining the two-host zoonosis reaction network
+
+We consider a two-host SIRS model with an animal reservoir (susceptible $X_1$, infected $Y_1$) and a target human population (susceptible $X_2$, infected $Y_2$). Using `ModelingToolkit.jl` / `Catalyst.jl` syntax:
+
+```{julia}
+using Phylodynamics
+using ModelingToolkit
+using Catalyst
+using Symbolics
+using OrdinaryDiffEqTsit5
+using JumpProcesses
+using CairoMakie
+using DataFrames
+using StableRNGs
+
+t = ModelingToolkit.t_nounits
+@parameters nu1 mu1 gamma1 m1 beta nu2 mu2 gamma2 m2 epsilon phi psi
+@species X1(t) Y1(t) X2(t) Y2(t)
+
+rxs = [
+    # 1. Reservoir demographic turnover
+    Reaction(nu1, nothing, [X1], nothing, [1]),
+    Reaction(mu1, [X1], nothing, [1], nothing),
+    # 2. Reservoir-to-reservoir transmission (1 -> 1): X1 + Y1 --> 2Y1
+    Reaction(beta, [X1, Y1], [Y1], [1, 1], [2]),
+    # 3. Reservoir recovery & mortality: Y1 --> 0
+    Reaction(gamma1, [Y1], nothing, [1], nothing),
+    Reaction(mu1 + m1, [Y1], nothing, [1], nothing),
+    # 4. Human demographic turnover
+    Reaction(nu2, nothing, [X2], nothing, [1]),
+    Reaction(mu2, [X2], nothing, [1], nothing),
+    # 5. Zoonotic spillover (1 -> 2): X2 + Y1 --> Y2 + Y1
+    Reaction(epsilon * beta, [X2, Y1], [Y2, Y1], [1, 1], [1, 1]),
+    # 6. Human-to-human transmission (2 -> 2): X2 + Y2 --> 2Y2
+    Reaction(phi * beta, [X2, Y2], [Y2], [1, 1], [2]),
+    # 7. Reverse zoonosis / zooanthroponosis (2 -> 1): X1 + Y2 --> Y1 + Y2
+    Reaction(psi * beta, [X1, Y2], [Y1, Y2], [1, 1], [1, 1]),
+    # 8. Human recovery & mortality: Y2 --> 0
+    Reaction(gamma2, [Y2], nothing, [1], nothing),
+    Reaction(mu2 + m2, [Y2], nothing, [1], nothing)
+]
+
+@named zoonosis_rs = ReactionSystem(
+    rxs, t, [X1, Y1, X2, Y2],
+    [nu1, mu1, gamma1, m1, beta, nu2, mu2, gamma2, m2, epsilon, phi, psi];
+    combinatoric_ratelaws = false
+)
+zoonosis_rs = complete(zoonosis_rs)
+```
+
+Equivalently, the same model can be written using the `Catalyst.@reaction_network` macro via `build_zoonosis_catalyst_network()`.
+
+## Automatic stoichiometric reaction classification
+
+Passing `zoonosis_rs` and the ordered vector of infected species `[Y1, Y2]` to `classify_phylodynamic_reactions` extracts the phylodynamic role and parent/child demes of every reaction directly from its stoichiometry:
+
+```{julia}
+specs = classify_phylodynamic_reactions(zoonosis_rs, [Y1, Y2])
+DataFrame(
+    index = [s.rx_index for s in specs],
+    role = [s.role for s in specs],
+    parent_deme = [s.parent_deme for s in specs],
+    child_deme = [s.child_deme for s in specs],
+    rate = [string(s.rx.rate) for s in specs]
+)
+```
+
+Notice that:
+
+- `X1 + Y1 --> 2Y1` has substrate `Y1` (deme 1) and products `(Y1, Y1)`, so it is classified as `:transmission` with `(parent_deme = 1, child_deme = 1)` ($F_{11}$).
+- `X2 + Y1 --> Y2 + Y1` has substrate `Y1` (deme 1) and newly created infected product `Y2` (deme 2), so it is classified as `:transmission` with `(parent_deme = 1, child_deme = 2)` ($F_{12}$, zoonotic spillover).
+- `X2 + Y2 --> 2Y2` is `:transmission` with `(parent_deme = 2, child_deme = 2)` ($F_{22}$, human-to-human spread).
+- `X1 + Y2 --> Y1 + Y2` is `:transmission` with `(parent_deme = 2, child_deme = 1)` ($F_{21}$, reverse zoonosis).
+
+## Three epidemiological regimes
+
+We consider three nested epidemiological regimes that produce nearly identical human prevalence at the reservoir epidemic peak ($T = 12.85$ years):
+
+- **Model 1 (Pure zoonotic spillover)**: $\epsilon = 0.1, \phi = 0, \psi = 0$ ($R_{0,22} = 0$). Every human case is an independent spillover from the animal reservoir.
+- **Model 2 (Sustained human-to-human spread)**: $\epsilon = 0.01, \phi = 4.0, \psi = 0$ ($R_{0,22} \approx 3.65$). Spillover is $10\times$ rarer, but supercritical human-to-human transmission amplifies rare introductions into large human clades.
+- **Model 3 (Bidirectional / reverse zoonosis)**: $\epsilon = 0.01, \phi = 4.0, \psi = 4.0$. In addition to human-to-human spread, infected humans transmit back into the animal reservoir at rate $f_{21} = \psi \beta X_1 Y_2$.
+
+```{julia}
+models = [
+    ("Model 1: Pure Spillover (ε=0.1, φ=0, ψ=0)", model1_params()),
+    ("Model 2: Human Spread (ε=0.01, φ=4, ψ=0)", model2_params()),
+    ("Model 3: Reverse Zoonosis (ε=0.01, φ=4, ψ=4)", model3_params())
+]
+```
+
+## Deterministic ODE and exact Gillespie SSA trajectories
+
+From the same `ReactionSystem`, `Phylodynamics.jl` constructs both deterministic `ODEProblem`s (solved with `OrdinaryDiffEqTsit5`) and exact continuous-time Markov jump processes (`JumpProblem` solved with `JumpProcesses.SSAStepper()`):
+
+```{julia}
+fig = Figure(size = (1050, 380), fontsize = 12)
+rng = StableRNG(2026)
+
+for (col, (title_str, zp)) in enumerate(models)
+    ode_res = solve_forward_epidemic(zp; tmax = 15.0, dt = 0.05)
+    df = ode_res.df
+
+    ax = Axis(fig[1, col];
+        title = title_str,
+        xlabel = "Time (years)",
+        ylabel = col == 1 ? "Infected prevalence" : "",
+        yscale = log10
+    )
+
+    # Overlay 3 stochastic Gillespie SSA realizations from JumpProcesses.jl
+    for rep in 1:3
+        stoch = simulate_stochastic_trajectory(zp; tspan = (0.0, 15.0), rng = rng)
+        sp = stoch.bundle.species
+        t_grid = range(0.0, 15.0; length = 150)
+        y1_s = [max(0.1, Float64(stoch.sol(tg; idxs = sp.Y1))) for tg in t_grid]
+        y2_s = [max(0.1, Float64(stoch.sol(tg; idxs = sp.Y2))) for tg in t_grid]
+        lines!(ax, collect(t_grid), y1_s; color = (:royalblue, 0.30), linewidth = 1.0)
+        lines!(ax, collect(t_grid), y2_s; color = (:crimson, 0.30), linewidth = 1.0)
+    end
+
+    # Deterministic ODE curves
+    lines!(ax, df.time, max.(df.Y1, 0.1); color = :royalblue, linewidth = 2.6, label = "Reservoir Y₁(t)")
+    lines!(ax, df.time, max.(df.Y2, 0.1); color = :crimson, linewidth = 2.6, label = "Human Y₂(t)")
+    vlines!(ax, [zp.t_peak]; color = :black, linestyle = :dash, linewidth = 1.4, label = "Peak T = 12.85")
+    ylims!(ax, 0.1, 2e4)
+    if col == 1
+        axislegend(ax; position = :rb, framevisible = false, labelsize = 10)
+    end
+end
+fig
+```
+
+## Converting `ReactionSystem` to `ModelFGY` and `TFGY`
+
+Without writing a single differential equation by hand, `ModelFGY(rs, infected, u0, tspan, p)` and `reaction_system_to_fgy(rs, infected, u0, p, tspan)` compile the symbolic reaction rates into the reverse-time $(F(t), G(t), Y(t))$ trajectory required by structured coalescent simulators and likelihood engines:
+
+```{julia}
+bundle = build_zoonosis_reaction_system()
+sp = bundle.species
+pr = bundle.params
+zp3 = model3_params()
+
+u0 = [sp.X1 => zp3.X1_0, sp.Y1 => zp3.Y1_0, sp.X2 => zp3.X2_0, sp.Y2 => zp3.Y2_0]
+p  = [pr.nu1 => zp3.nu1, pr.mu1 => zp3.mu1, pr.gamma1 => zp3.gamma1, pr.m1 => zp3.m1,
+      pr.beta => zp3.beta, pr.nu2 => zp3.nu2, pr.mu2 => zp3.mu2, pr.gamma2 => zp3.gamma2,
+      pr.m2 => zp3.m2, pr.epsilon => zp3.epsilon, pr.phi => zp3.phi, pr.psi => zp3.psi]
+
+tfgy = reaction_system_to_fgy(bundle.rs, [sp.Y1, sp.Y2], u0, p, (0.0, 12.85); res = 200)
+println("Demes: ", tfgy.demes)
+println("At epidemic peak (t = 12.85, height h = 0):")
+println("  Y(T) = ", round.(tfgy.Ys[1], digits = 2))
+println("  F(T) = ", round.(tfgy.Fs[1], digits = 2))
+```

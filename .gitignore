@@ -1,0 +1,17 @@
+# Julia
+*.jl.cov
+*.jl.*.cov
+*.jl.mem
+Manifest.toml
+Manifest-v*.toml
+vignettes/Manifest.toml
+
+# Quarto temporary artifacts
+vignettes/**/*_files/
+vignettes/**/.quarto/
+vignettes/_freeze/
+
+# OS / editors
+.DS_Store
+.vscode/
+*.swp

@@ -85,12 +85,24 @@ using StableRNGs
         Event(SAMPLE, 0.0, "deme_b", "deme_b"),
         Event(MIGRATION, 0.5, "deme_b", "deme_a"),
         Event(COALESCENT, 1.0, "deme_b", "deme_b")]
-    simulated = SimTree(events, model; rng=StableRNG(11))
+    simulated = SimTree(events, model; record_events=true, rng=StableRNG(11))
+    @test simulated.event_history !== nothing
+    @test [event.height for event in simulated.event_history] == [0.0, 0.0, 0.5, 1.0]
     converted = simtree_to_phylotree(simulated; T_sample=2.0)
     @test converted.tip_state == [2, 1]
     @test converted.true_jumps_12 == 1
     @test converted.true_jumps_21 == 0
     @test !any(endswith(label, "_I") || endswith(label, "_Y") for label in converted.tip_label)
+
+    forest_events = [Event(SAMPLE, 0.0, "deme_b", "deme_b"),
+        Event(SAMPLE, 0.0, "deme_b", "deme_b"),
+        Event(SAMPLE, 0.0, "deme_a", "deme_a"),
+        Event(COALESCENT, 0.5, "deme_b", "deme_b")]
+    forest = SimTree(forest_events, model; record_events=true, rng=StableRNG(12))
+    @test count(e -> e.type == COALESCENT, forest.event_history) == 1
+    @test forest.nNode == 2
+    @test maximum(e.height for e in forest.event_history) == 0.5
+    @test maximum(Float64.(forest.heights)) > 0.5
 
     @named varying = ReactionSystem([Reaction(growth * t, [A], [A], [1], [2])],
         t, [A], [growth]; combinatoric_ratelaws=false)

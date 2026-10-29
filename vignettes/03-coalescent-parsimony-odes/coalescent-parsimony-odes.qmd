@@ -29,6 +29,8 @@ using Phylodynamics.Zoonosis
 using CairoMakie
 using DataFrames
 using Printf
+using StableRNGs
+using Statistics
 
 df_canon = compute_canonical_summary(; n1 = 100.0, n2 = 100.0, T_sample = 12.85)
 df_canon[:, [:model, :J_true_12, :J_true_21, :J_pars_1to2, :J_pars_2to1, :J_pars_fitch, :r_assort, :IS_norm]]
@@ -41,6 +43,252 @@ Key theoretical insights immediately visible from the ODE table:
 3. **Reverse zoonosis**: Animal tips nested inside human clades can create an excess of directional Camin-Sokal changes over the unconstrained Fitch score. The executed table above gives the values for the current model and equations.
 
 The directional class equations have been corrected to conserve total ancestral lineages. Numerical results from older rendered versions should not be used as reference values.
+
+## Stochastic distributions and mean backward-time dynamics
+
+We now compare the ODEs with **120 independent structured-coalescent genealogies
+per model**, conditional on the **same deterministic forward demographic
+trajectory**. This isolates genealogical variation and the moment-closure
+approximation; it does not add stochastic epidemic variation. We use
+$n_1=40$, $n_2=10$ and $T=12.85$ for both calculations.
+
+Each replicate contributes an entire backward-time path. The shaded regions
+below are **pointwise 10–90% simulation quantiles**, not confidence intervals
+for the mean. Blue lines show empirical means; dashed red lines show the ODEs.
+The comparison includes lineage counts, true jumps, all three parsimony scores,
+cherries, and the raw cumulative Sackin statistic.
+
+For each model, we use the deterministic cut where the ODE total lineage count
+is closest to one. **Every replicate is evaluated at that same cut**, including
+those that have not yet reached an MRCA. Endpoints are therefore statistics of
+the ancestral forest at a common time, not statistics conditional on tree
+completion. Recorded events exclude synthetic boundary coalescences that a
+tree representation may insert when the demographic history runs out.
+
+### Recovering statistics from the recorded genealogy
+
+At each genuine coalescence we merge the two child character classes and
+descendant-tip masses. This gives discrete parsimony increments, a cherry when
+both children are sampled tips, and a Sackin increment equal to the sum of child
+descendant counts. True jumps come directly from cross-deme coalescence and
+migration events, not from parsimony.
+
+```{julia}
+statistic_names = [
+    "Total ancestral lineages", "True total jumps", "Camin–Sokal 1→2",
+    "Camin–Sokal 2→1", "Fitch changes", "Total cherries", "Raw Sackin statistic"
+]
+
+function backward_statistics(tree::SimTree, times)
+    history = tree.event_history
+    history === nothing && error("Generate the genealogy with record_events=true")
+    length(tree.deme_names) == 2 || error("This study example uses two character states")
+    all(e -> e.type != SAMPLE || e.height == 0.0, history) ||
+        error("This comparison requires contemporaneous samples")
+    issorted(times) && all(>=(0), times) || error("Backward times must be sorted and nonnegative")
+    coalescences = sort([e.height for e in history if e.type == COALESCENT])
+    jump_heights = sort([e.height for e in history
+        if e.type in (COALESCENT, MIGRATION) && e.source != e.sink])
+    n = tree.n
+    total = n + tree.nNode
+    deme_state = Dict(deme => state for (state, deme) in enumerate(tree.deme_names))
+    states = [deme_state[deme] for deme in tree.demes[1:n]]
+    cs12 = zeros(Int, total)
+    cs21 = zeros(Int, total)
+    fitch = zeros(Int, total)
+    mass = zeros(Int, total)
+    cs12[1:n] .= states
+    cs21[1:n] .= states
+    fitch[1:n] .= states
+    mass[1:n] .= 1
+    changes = zeros(Int, length(coalescences), 7)
+    for event in eachindex(coalescences)
+        node = total - event + 1
+        left, right, _, _ = tree.daughters[node - n]
+        changes[event, 1] = -1
+        changes[event, 3] = cs12[left] != cs12[right]
+        changes[event, 4] = cs21[left] != cs21[right]
+        cs12[node] = min(cs12[left], cs12[right])
+        cs21[node] = max(cs21[left], cs21[right])
+        intersection = fitch[left] & fitch[right]
+        changes[event, 5] = intersection == 0
+        fitch[node] = intersection == 0 ? fitch[left] | fitch[right] : intersection
+        changes[event, 6] = left <= n && right <= n
+        mass[node] = mass[left] + mass[right]
+        changes[event, 7] = mass[node]
+    end
+    result = zeros(Int, length(times), 7)
+    current = zeros(Int, 7)
+    current[1] = n
+    next_coalescence = 1
+    next_jump = 1
+    for (row, time) in enumerate(times)
+        while next_coalescence <= length(coalescences) &&
+                coalescences[next_coalescence] <= time
+            current .+= changes[next_coalescence, :]
+            next_coalescence += 1
+        end
+        while next_jump <= length(jump_heights) && jump_heights[next_jump] <= time
+            current[2] += 1
+            next_jump += 1
+        end
+        result[row, :] .= current
+    end
+    return result
+end
+
+# Independent small-tree checks, including a partial forest with an artificial root.
+toy_model = ModelFGY(demes=["a", "b"], tfin=2.0)
+toy_events = [
+    Event(SAMPLE, 0.0, "a", "a"), Event(SAMPLE, 0.0, "b", "b"),
+    Event(COALESCENT, 1.0, "a", "b")
+]
+toy = SimTree(toy_events, toy_model; record_events=true, rng=StableRNG(1))
+@assert backward_statistics(toy, [0.0, 1.0]) ==
+    [2 0 0 0 0 0 0; 1 1 1 1 1 1 2]
+forest_events = [
+    Event(SAMPLE, 0.0, "a", "a"), Event(SAMPLE, 0.0, "a", "a"),
+    Event(SAMPLE, 0.0, "b", "b"), Event(COALESCENT, 0.5, "a", "a")
+]
+forest = SimTree(forest_events, toy_model; record_events=true, rng=StableRNG(2))
+@assert backward_statistics(forest, [1.0]) == [2 0 0 0 0 1 2]
+nothing
+```
+
+### Reproducible ensembles matched to the ODEs
+
+The seed is fixed separately for each model and replicate. Demographic
+trajectories and sample counts are checked before comparing the statistics.
+
+```{julia}
+n_replicates = 120
+n1_comparison, n2_comparison = 40, 10
+comparison = NamedTuple[]
+endpoint_rows = NamedTuple[]
+for (model_number, parameters) in enumerate([model1_params(), model2_params(), model3_params()])
+    ode = solve_coalescent_odes(parameters;
+        n1=Float64(n1_comparison), n2=Float64(n2_comparison))
+    model = ModelFGY(parameters; tfin=parameters.t_peak)
+    demographic = solveodes(model; res=500)
+    @assert isapprox(demographic(parameters.t_peak)[1], ode.summary.Y1_T; rtol=1e-5)
+    @assert isapprox(demographic(parameters.t_peak)[2], ode.summary.Y2_T; rtol=1e-5)
+    @assert ode.summary.Y1_T >= n1_comparison && ode.summary.Y2_T >= n2_comparison
+    sample = SampleConfiguration(Dict("Y1" => n1_comparison, "Y2" => n2_comparison),
+        parameters.t_peak)
+    trajectory = ode.traj
+    stop = argmin(abs.(trajectory.A1 .+ trajectory.A2 .- 1.0))
+    indices = unique(round.(Int, range(1, stop; length=121)))
+    times = trajectory.s[indices]
+    expected = hcat(
+        trajectory.A1[indices] .+ trajectory.A2[indices],
+        trajectory.J_true_total[indices], trajectory.J_pars_1to2[indices],
+        trajectory.J_pars_2to1[indices], trajectory.J_pars_fitch[indices],
+        trajectory.C11[indices] .+ trajectory.C12[indices] .+ trajectory.C22[indices],
+        trajectory.IS_raw[indices])
+    draws = Array{Float64}(undef, length(times), 7, n_replicates)
+    for replicate in 1:n_replicates
+        tree = SimTree(model, sample; record_events=true,
+            rng=StableRNG(10_000 * model_number + replicate))
+        draws[:, :, replicate] .= backward_statistics(tree, times)
+        @assert draws[1, 1, replicate] == n1_comparison + n2_comparison
+        @assert all(iszero, draws[1, 2:7, replicate])
+        # Completed histories must agree with the independent whole-tree routines.
+        if count(e -> e.type == COALESCENT, tree.event_history) == tree.n - 1
+            full = backward_statistics(tree, [parameters.t_peak])[1, :]
+            phylogeny = simtree_to_phylotree(tree; T_sample=parameters.t_peak)
+            pars = parsimony_counts(phylogeny)
+            cherries = cherry_assortativity(phylogeny)
+            @assert full[3:5] == [pars.J_pars_1to2, pars.J_pars_2to1, pars.J_pars_fitch]
+            @assert full[6] == cherries.C11 + cherries.C12 + cherries.C22
+            @assert full[7] == sackin_index(phylogeny).IS
+        end
+    end
+    averages = dropdims(mean(draws; dims=3); dims=3)
+    name = "Model $model_number"
+    push!(comparison, (; name, times, expected, draws, averages))
+    for statistic in eachindex(statistic_names)
+        endpoints = draws[end, statistic, :]
+        push!(endpoint_rows, (
+            Model=name, Statistic=statistic_names[statistic], BackwardCut=last(times),
+            ODE=expected[end, statistic], SimulationMean=mean(endpoints),
+            MonteCarloSE=std(endpoints) / sqrt(n_replicates),
+            Quantile10=quantile(endpoints, 0.1), Quantile90=quantile(endpoints, 0.9),
+            UncoalescedAtCut=mean(draws[end, 1, :] .> 1)))
+    end
+end
+DataFrame(endpoint_rows)
+```
+
+### ODE trajectories over empirical distributions
+
+```{julia}
+fig_dynamics = Figure(size=(1120, 1750), fontsize=11)
+for (column, ensemble) in enumerate(comparison), statistic in eachindex(statistic_names)
+    ax = Axis(fig_dynamics[statistic, column];
+        title=statistic == 1 ? ensemble.name : "",
+        xlabel=statistic == 7 ? "Backward time s = T - t" : "",
+        ylabel=column == 1 ? statistic_names[statistic] : "")
+    lower = [quantile(ensemble.draws[row, statistic, :], 0.1)
+        for row in eachindex(ensemble.times)]
+    upper = [quantile(ensemble.draws[row, statistic, :], 0.9)
+        for row in eachindex(ensemble.times)]
+    band!(ax, ensemble.times, lower, upper;
+        color=(:royalblue, 0.18), label="Simulation 10–90%")
+    lines!(ax, ensemble.times, ensemble.averages[:, statistic];
+        color=:royalblue, linewidth=2, label="Simulation mean")
+    lines!(ax, ensemble.times, ensemble.expected[:, statistic];
+        color=:crimson, linewidth=2, linestyle=:dash, label="ODE")
+    statistic == 1 && column == 1 &&
+        axislegend(ax; position=:rt, framevisible=false, labelsize=8)
+end
+fig_dynamics
+```
+
+The ODEs approximate means, not individual realizations or quantiles. Exact
+agreement is not expected: stochastic within-deme coalescence uses
+$A_i(A_i-1)$ rather than $A_i^2$, and the closure replaces expectations of
+products by products of expectations. Differences are especially informative
+near the final few lineages, where the stochastic process is absorbed at one.
+The table reports Monte Carlo standard errors separately from the much wider
+realization-to-realization bands. No ODE curve is fitted to these simulations.
+
+In this seeded comparison, the jump, parsimony, and cherry trajectories broadly
+follow the simulation means. The raw Sackin statistic shows a clearer late-time
+overprediction: at the common cuts its ODE values are about 18% above the empirical
+means, much larger than their Monte Carlo standard errors. Thus the overlays
+also expose approximation error rather than demonstrating exact mean recovery.
+
+### Endpoint distributions at the same backward-time cut
+
+Histograms show the complete empirical endpoint distributions, with their means
+and ODE predictions marked separately. The `UncoalescedAtCut` column above
+reports the fraction of replicates still represented by an ancestral forest;
+these replicates are retained rather than discarded.
+
+```{julia}
+fig_endpoints = Figure(size=(1120, 1750), fontsize=11)
+for (column, ensemble) in enumerate(comparison), statistic in eachindex(statistic_names)
+    ax = Axis(fig_endpoints[statistic, column];
+        title=statistic == 1 ?
+            "$(ensemble.name), s = $(round(last(ensemble.times); digits=2))" : "",
+        xlabel=statistic_names[statistic],
+        ylabel=column == 1 ? "Probability per bin" : "")
+    endpoints = ensemble.draws[end, statistic, :]
+    prediction = ensemble.expected[end, statistic]
+    low = floor(min(minimum(endpoints), prediction)) - 0.5
+    high = ceil(max(maximum(endpoints), prediction)) + 0.5
+    width = max(1.0, ceil((high - low) / 25))
+    bins = collect(low:width:(high + width))
+    hist!(ax, endpoints; bins=bins, normalization=:probability,
+        color=(:royalblue, 0.5), label="Simulations")
+    vlines!(ax, [mean(endpoints)]; color=:royalblue, linewidth=2, label="Simulation mean")
+    vlines!(ax, [prediction]; color=:crimson, linewidth=2,
+        linestyle=:dash, label="ODE")
+    statistic == 1 && column == 1 &&
+        axislegend(ax; position=:rt, framevisible=false, labelsize=8)
+end
+fig_endpoints
+```
 
 ## Effect of sampling time $T$ and sample fractions $(n_1, n_2)$
 

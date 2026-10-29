@@ -312,6 +312,7 @@ Base.@kwdef mutable struct SimTree
     daughters::Union{Nothing,Vector{Tuple{Int,Int,Int,Int}}} = nothing
     demes::Union{Nothing,Vector{String}} = nothing
     deme_names::Vector{String} = String[]
+    event_history::Union{Nothing,Vector{Event}} = nothing
     true_jumps_12::Int = 0
     true_jumps_21::Int = 0
     true_jump_times_12::Vector{Float64} = Float64[]
@@ -332,11 +333,13 @@ function SimTree(
     events_in::Vector{Event},
     model::ModelFGY;
     computedescendants::Bool = false,
+    record_events::Bool = false,
     rng::AbstractRNG = Random.default_rng()
 )::SimTree
     events = deepcopy(events_in)
     ix = sortperm([e.height for e in events])
     events = events[ix]
+    history = record_events ? deepcopy(events) : nothing
     n = count(e -> e.type == SAMPLE, events)
     nNode = n - 1
     nCo = count(e -> e.type == COALESCENT, events)
@@ -485,21 +488,28 @@ function SimTree(
         parent=parent, child=child, n=n, nNode=nNode,
         edgelength=edgelength, heights=heights, tiplabs=tiplabs, shs=shs,
         descendants=desc, daughters=daughters, demes=demes, deme_names=copy(model.demes),
+        event_history=history,
         true_jumps_12=jumps_12, true_jumps_21=jumps_21,
         true_jump_times_12=sort!(jtimes_12), true_jump_times_21=sort!(jtimes_21)
     )
 end
 
 """
-    SimTree(model::ModelFGY, sample::SampleConfiguration; computedescendants::Bool=false, solver=Tsit5(), ytol::Float64=1e-6, rng=Random.default_rng()) -> SimTree
+    SimTree(model::ModelFGY, sample::SampleConfiguration; computedescendants=false, record_events=false, solver=Tsit5(), ytol=1e-6, rng=Random.default_rng()) -> SimTree
 
 Simulate a structured coalescent tree from `model::ModelFGY` and `sample::SampleConfiguration`
 using the Markovian cumulative-hazard ODE + `ContinuousCallback` algorithm of `Coalescent.jl`.
+Set `record_events=true` to retain the sampled event history in `event_history`.
+It excludes synthetic boundary coalescences used to complete a tree when the
+simulated interval ends with multiple ancestral lineages. This permits unconditioned
+fixed-time statistics on the original partial forest, without conditioning on
+whether an MRCA was reached.
 """
 function SimTree(
     model::ModelFGY,
     sample_cfg::SampleConfiguration;
     computedescendants::Bool = false,
+    record_events::Bool = false,
     solver = Tsit5(),
     ytol::Float64 = 1e-6,
     rng::AbstractRNG = Random.default_rng()
@@ -674,7 +684,8 @@ function SimTree(
     tstops = [h for h in ushs if h > 0.0]
     solve(pr, solver; callback=cbs, tstops=tstops, maxiters=10^6)
 
-    return SimTree(events, model; computedescendants=computedescendants, rng=rng)
+    return SimTree(events, model; computedescendants=computedescendants,
+        record_events=record_events, rng=rng)
 end
 
 """

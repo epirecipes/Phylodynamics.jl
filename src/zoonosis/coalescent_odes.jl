@@ -341,6 +341,7 @@ function solve_coalescent_odes(
         C11 = [u[7] for u in sol.u],
         C12 = [u[8] for u in sol.u],
         C22 = [u[9] for u in sol.u],
+        IS_raw = [u[12] for u in sol.u],
         A11 = [u[15] for u in sol.u],
         A12 = [u[16] for u in sol.u],
         A21 = [u[17] for u in sol.u],

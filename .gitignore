@@ -5,6 +5,8 @@
 Manifest.toml
 Manifest-v*.toml
 vignettes/Manifest.toml
+docs/build/
+docs/src/vignettes/*/
 
 # Quarto temporary artifacts
 vignettes/**/*_files/

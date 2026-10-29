@@ -2,6 +2,8 @@
 
 A Julia package for forward and backward phylodynamic simulation, analytical structured coalescent ODEs, phylogeographic ancestral state reconstruction, and maximum-likelihood phylodynamic inference, built directly on **ModelingToolkit.jl** and **Catalyst.jl** reaction systems.
 
+**Documentation:** [Vignettes and API reference](https://epirecip.es/Phylodynamics.jl/).
+
 ---
 
 ## Key Features
@@ -130,4 +132,3 @@ cd vignettes
 quarto render 01-reaction-networks/reaction-networks.qmd
 quarto render
 ```
-

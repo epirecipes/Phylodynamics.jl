@@ -130,7 +130,7 @@ Users can also construct `ModelFGY`, `SampleConfiguration`, and `SimTree` object
 
 ```{julia}
 mod = ModelFGY(model2_params())
-scfg = SampleConfiguration([("Y1", 12.85) for _ in 1:25] ∪ [("Y2", 12.85) for _ in 1:15])
+scfg = SampleConfiguration(vcat([("Y1", 12.85) for _ in 1:25], [("Y2", 12.85) for _ in 1:15]))
 st = SimTree(mod, scfg; computedescendants = true, rng = StableRNG(99))
 D = distancematrix(st)
 

@@ -6,7 +6,7 @@ Julia package for epidemiological phylodynamics, providing:
 2. Structured coalescent likelihoods and ancestral character estimation (`DatedTree`, `TFGY`, `build_demographic_process`, `colik` / `colik_pik_fgy` with `PL2`, `PL1`, and `QL` approximations, `solvePikL1`, `solvePikL0`, `solveQAL`, and forward-backward `ace`).
 3. Equilibrium island-model structured coalescent inference (`gen_island_model`, `tips2states`, `island_coalescent_ml`, `confint_island_coalescent`, `boot_island_coalescent`).
 4. `ModelingToolkit.jl` / `Catalyst.jl` reaction-network tree generation (`TreeProblem`, `CoalescentStepper`, `ForwardSSAStepper`, `ForwardBackwardSSAStepper`), forward ODE (`OrdinaryDiffEq.jl`), and exact stochastic SSA (`JumpProcesses.jl`) simulation.
-5. Analytical backward coalescent ODEs for parsimony (`1 -> 2` Camin–Sokal, `2 -> 1` reverse Camin–Sokal, and 6-state bidirectional Fitch), Mk2 continuous-time Markov chain ML & conditional stochastic character mapping, and figure generation (`CairoMakie.jl`).
+5. Selectable multi-deme analytical coalescent moments, Fitch and directed/weighted Sankoff parsimony; the two-host specialization includes both directional Camin–Sokal priors. Mk2 continuous-time Markov chain ML & conditional stochastic character mapping, and figure generation (`CairoMakie.jl`).
 """
 module Phylodynamics
 
@@ -160,6 +160,7 @@ include("coalescent_base.jl")
 include("phydynr_phyland.jl")
 include("reaction_network.jl")
 include("coalescent_odes.jl")
+include("coalescent_moments.jl")
 include("inference.jl")
 include("figures.jl")
 

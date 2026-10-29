@@ -7,6 +7,8 @@ Manifest-v*.toml
 vignettes/Manifest.toml
 docs/build/
 docs/src/vignettes/*/
+verification/.venv/
+verification/generated-equations.csv
 
 # Quarto temporary artifacts
 vignettes/**/*_files/

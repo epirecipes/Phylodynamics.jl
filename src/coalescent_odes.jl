@@ -74,48 +74,21 @@ end
     r21 = A21 / I2
     r22 = A22 / I2
 
-    coal1_same11 = f11 * r11^2
-    coal1_same12 = f11 * r12^2
-    coal1_diff   = 2.0 * f11 * r11 * r12
-
-    coal2_same21 = f22 * r21^2
-    coal2_same22 = f22 * r22^2
-    coal2_diff   = 2.0 * f22 * r21 * r22
-
-    cross12_same1 = f12 * r11 * r21
-    cross12_same2 = f12 * r12 * r22
-    cross12_diff  = f12 * (r11 * r22 + r12 * r21)
-
-    cross21_same1 = f21 * r21 * r11
-    cross21_same2 = f21 * r22 * r12
-    cross21_diff  = f21 * (r21 * r12 + r22 * r11)
-
-    mig_2to1_state1 = f12 * r21 * (1.0 - r11 - r12)
-    mig_2to1_state2 = f12 * r22 * (1.0 - r11 - r12)
-    mig_1to2_state1 = f21 * r11 * (1.0 - r21 - r22)
-    mig_1to2_state2 = f21 * r12 * (1.0 - r21 - r22)
-
-    dA11 = -coal1_same11 - (1.0 + w) * coal1_diff +
-           mig_2to1_state1 - mig_1to2_state1 -
-           cross12_same1 - (1.0 + w) * f12 * r11 * r22 + (1.0 - w) * f12 * r12 * r21 -
-           cross21_same1 - f21 * r22 * r11
-
-    dA12 = -coal1_same12 - (2.0 - w) * coal1_diff +
-           mig_2to1_state2 - mig_1to2_state2 -
-           cross12_same2 + w * f12 * r11 * r22 - (2.0 - w) * f12 * r12 * r21 -
-           cross21_same2 - f21 * r21 * r12
-
-    dA21 = -coal2_same21 - (1.0 + w) * coal2_diff -
-           mig_2to1_state1 + mig_1to2_state1 -
-           cross12_same1 - f12 * r12 * r21 -
-           cross21_same1 - (1.0 + w) * f21 * r21 * r12 + (1.0 - w) * f21 * r22 * r11
-
-    dA22 = -coal2_same22 - (2.0 - w) * coal2_diff -
-           mig_2to1_state2 + mig_1to2_state2 -
-           cross12_same2 - f12 * r11 * r22 -
-           cross21_same2 + w * f21 * r21 * r12 - (2.0 - w) * f21 * r22 * r11
-
-    dJ = coal1_diff + coal2_diff + cross12_diff + cross21_diff
+    p1, p2 = r11 + r12, r21 + r22
+    migration1 = f12 * r21 * (1 - p1) - f21 * r11 * (1 - p2)
+    migration2 = f12 * r22 * (1 - p1) - f21 * r12 * (1 - p2)
+    switch1 = f12 * ((1 - w) * r12 * r21 - w * r11 * r22)
+    switch2 = f21 * ((1 - w) * r22 * r11 - w * r21 * r12)
+    dA11 = -f11 * r11^2 - 2w * f11 * r11 * r12 +
+        switch1 - f21 * r11 * p2 + migration1
+    dA12 = -f11 * r12^2 - 2(1 - w) * f11 * r11 * r12 -
+        switch1 - f21 * r12 * p2 + migration2
+    dA21 = -f22 * r21^2 - 2w * f22 * r21 * r22 +
+        switch2 - f12 * r21 * p1 - migration1
+    dA22 = -f22 * r22^2 - 2(1 - w) * f22 * r21 * r22 -
+        switch2 - f12 * r22 * p1 - migration2
+    dJ = 2f11 * r11 * r12 + 2f22 * r21 * r22 +
+        (f12 + f21) * (r11 * r22 + r12 * r21)
     return (dA11, dA12, dA21, dA22, dJ)
 end
 
@@ -130,33 +103,33 @@ end
 
     dF11 = -f11 * p11 * (p11 + 2.0 * p12) +
            f12 * p21 * (1.0 - p1) - f21 * p11 * (1.0 - p2) +
-           f12 * (p1s * p21 - p11 * p22 - p11 * p2) -
+           f12 * (p1s * p21 - p11 * p22) -
            f21 * p11 * p2
 
     dF12 = -f11 * p12 * (p12 + 2.0 * p11) +
            f12 * p22 * (1.0 - p1) - f21 * p12 * (1.0 - p2) +
-           f12 * (p1s * p22 - p12 * p21 - p12 * p2) -
+           f12 * (p1s * p22 - p12 * p21) -
            f21 * p12 * p2
 
     dF1s = f11 * (2.0 * p11 * p12 - 2.0 * p1s * p1 + p1s^2) +
            f12 * p2s * (1.0 - p1) - f21 * p1s * (1.0 - p2) +
-           f12 * (p11 * p22 + p12 * p21 - p1s * p21 - p1s * p22 - p1s * p2s) -
+           f12 * (p11 * p22 + p12 * p21 - p1s * p21 - p1s * p22) -
            f21 * p1s * p2
 
     dF21 = -f22 * p21 * (p21 + 2.0 * p22) -
            f12 * p21 * (1.0 - p1) + f21 * p11 * (1.0 - p2) -
            f12 * p21 * p1 +
-           f21 * (p2s * p11 - p21 * p12 - p21 * p1)
+           f21 * (p2s * p11 - p21 * p12)
 
     dF22 = -f22 * p22 * (p22 + 2.0 * p21) -
            f12 * p22 * (1.0 - p1) + f21 * p12 * (1.0 - p2) -
            f12 * p22 * p1 +
-           f21 * (p2s * p12 - p22 * p11 - p22 * p1)
+           f21 * (p2s * p12 - p22 * p11)
 
     dF2s = f22 * (2.0 * p21 * p22 - 2.0 * p2s * p2 + p2s^2) -
            f12 * p2s * (1.0 - p1) + f21 * p1s * (1.0 - p2) -
            f12 * p2s * p1 +
-           f21 * (p21 * p12 + p22 * p11 - p2s * p11 - p2s * p12 - p2s * p1s)
+           f21 * (p21 * p12 + p22 * p11 - p2s * p11 - p2s * p12)
 
     dJF = 2.0 * f11 * p11 * p12 + 2.0 * f22 * p21 * p22 +
           (f12 + f21) * (p11 * p22 + p12 * p21)
@@ -164,56 +137,33 @@ end
     return (dF11, dF12, dF1s, dF21, dF22, dF2s, dJF)
 end
 
-"""
-    solve_coalescent_odes(zp::ZoonosisParams; n1::Float64=100.0, n2::Float64=100.0, T_sample::Float64=zp.t_peak, dt::Float64=0.01, solver=Tsit5())
+function _zoonosis_coalescent_rhs!(du, y, p, uf;
+    positive = x -> max(x, 0.0),
+    descendant_mean = (x, a) -> a > 1e-9 ? x / a : 0.0)
+        X1_f = positive(uf[1])
+        I1   = uf[2]
+        X2_f = positive(uf[3])
+        I2   = uf[4]
 
-Solve the 37-state Frost/Volz backward coalescent ODE system from `s = 0` (at `t = T_sample`)
-to `s = T_sample` (at `t = 0`), returning `(summary = ..., traj = DataFrame, fwd = fwd)`.
-"""
-function solve_coalescent_odes(
-    zp::ZoonosisParams;
-    n1::Float64 = 100.0,
-    n2::Float64 = 100.0,
-    T_sample::Float64 = zp.t_peak,
-    dt::Float64 = 0.01,
-    solver = Tsit5()
-)
-    fwd = solve_forward_epidemic(zp; tmax = max(T_sample + 1.0, 35.0), dt = dt, solver = solver)
-    fwd_sol = fwd.sol
-    u_T = fwd_sol(T_sample)
-    Y1_T = max(u_T[2], 1e-9)
-    Y2_T = max(u_T[4], 1e-9)
-    n1_eff = n1
-    n2_eff = n2
-    n_total = n1_eff + n2_eff
+        f11 = positive(p.beta * X1_f * I1)
+        f12 = positive(p.epsilon * p.beta * X2_f * I1)
+        f21 = positive(p.psi * p.beta * X1_f * I2)
+        f22 = positive(p.phi * p.beta * X2_f * I2)
 
-    function bwd_rhs!(du, y, p, s)
-        t_fwd = max(0.0, T_sample - s)
-        uf = fwd_sol(t_fwd)
-        X1_f = max(uf[1], 1e-12)
-        I1   = max(uf[2], 1e-9)
-        X2_f = max(uf[3], 1e-12)
-        I2   = max(uf[4], 1e-9)
-
-        f11 = max(p.beta * X1_f * I1, 0.0)
-        f12 = max(p.epsilon * p.beta * X2_f * I1, 0.0)
-        f21 = max(p.psi * p.beta * X1_f * I2, 0.0)
-        f22 = max(p.phi * p.beta * X2_f * I2, 0.0)
-
-        a1 = max(y[1], 0.0)
-        a2 = max(y[2], 0.0)
+        a1 = positive(y[1])
+        a2 = positive(y[2])
         p1 = a1 / I1
         p2 = a2 / I2
 
-        L11 = max(y[3], 0.0)
-        L21 = max(y[4], 0.0)
-        L12 = max(y[5], 0.0)
-        L22 = max(y[6], 0.0)
+        L11 = positive(y[3])
+        L21 = positive(y[4])
+        L12 = positive(y[5])
+        L22 = positive(y[6])
 
-        X1_s = max(y[10], 0.0)
-        X2_s = max(y[11], 0.0)
-        x1_ratio = a1 > 1e-9 ? X1_s / a1 : 0.0
-        x2_ratio = a2 > 1e-9 ? X2_s / a2 : 0.0
+        X1_s = positive(y[10])
+        X2_s = positive(y[11])
+        x1_ratio = descendant_mean(X1_s, a1)
+        x2_ratio = descendant_mean(X2_s, a2)
 
         # 1. True deme lineage counts (Volz 2012 Eqs. 38-39)
         dA1 = -f11 * p1^2 - f21 * p1 * p2 + f12 * p2 * (1.0 - p1) - f21 * p1 * (1.0 - p2)
@@ -237,26 +187,26 @@ function solve_coalescent_odes(
         dK2   = (f12 + f21) * p1 * p2 * (x1_ratio + x2_ratio) + 2.0 * f22 * p2^2 * x2_ratio
 
         # 4. Prior 1: Unidirectional Animal -> Human Camin-Sokal (A11, A12, A21, A22; J_p1)
-        p11 = max(y[15], 0.0) / I1; p12 = max(y[16], 0.0) / I1
-        p21 = max(y[17], 0.0) / I2; p22 = max(y[18], 0.0) / I2
-        dA11 = -f11 * p11^2 + f12 * (p11 * p22 + p12 * p21) - f21 * p11 * (p21 + p22) + f12 * p21 * (1.0 - p1) - f21 * p11 * (1.0 - p2)
-        dA12 = -f11 * p12^2 - 2.0 * f11 * p11 * p12 - f21 * p12 * (p21 + p22) + f12 * p22 * (1.0 - p1) - f21 * p12 * (1.0 - p2)
-        dA21 = -f22 * p21^2 + f21 * (p22 * p11 + p21 * p12) - f12 * p21 * (p11 + p12) + f21 * p11 * (1.0 - p2) - f12 * p21 * (1.0 - p1)
-        dA22 = -f22 * p22^2 - 2.0 * f22 * p21 * p22 - f12 * p22 * (p11 + p12) + f21 * p12 * (1.0 - p2) - f12 * p22 * (1.0 - p1)
+        p11 = positive(y[15]) / I1; p12 = positive(y[16]) / I1
+        p21 = positive(y[17]) / I2; p22 = positive(y[18]) / I2
+        dA11 = -f11 * p11^2 + f12 * p12 * p21 - f21 * p11 * (p21 + p22) + f12 * p21 * (1.0 - p1) - f21 * p11 * (1.0 - p2)
+        dA12 = -f11 * p12^2 - 2.0 * f11 * p11 * p12 - f12 * p12 * p21 - f21 * p12 * (p21 + p22) + f12 * p22 * (1.0 - p1) - f21 * p12 * (1.0 - p2)
+        dA21 = -f22 * p21^2 + f21 * p22 * p11 - f12 * p21 * (p11 + p12) + f21 * p11 * (1.0 - p2) - f12 * p21 * (1.0 - p1)
+        dA22 = -f22 * p22^2 - 2.0 * f22 * p21 * p22 - f21 * p22 * p11 - f12 * p22 * (p11 + p12) + f21 * p12 * (1.0 - p2) - f12 * p22 * (1.0 - p1)
         dJ_p1 = 2.0 * f11 * p11 * p12 + 2.0 * f22 * p21 * p22 + (f12 + f21) * (p11 * p22 + p12 * p21)
 
         # 5. Prior 2: Unidirectional Human -> Animal Reverse Camin-Sokal (B11, B12, B21, B22; J_p2)
-        q11 = max(y[19], 0.0) / I1; q12 = max(y[20], 0.0) / I1
-        q21 = max(y[21], 0.0) / I2; q22 = max(y[22], 0.0) / I2
-        dB11 = -f11 * q11^2 - 2.0 * f11 * q11 * q12 - f21 * q11 * (q21 + q22) + f12 * q21 * (1.0 - p1) - f21 * q11 * (1.0 - p2)
-        dB12 = -f11 * q12^2 + f12 * (q11 * q22 + q12 * q21) - f21 * q12 * (q21 + q22) + f12 * q22 * (1.0 - p1) - f21 * q12 * (1.0 - p2)
-        dB21 = -f22 * q21^2 - 2.0 * f22 * q21 * q22 - f12 * q21 * (q11 + q12) + f21 * q11 * (1.0 - p2) - f12 * q21 * (1.0 - p1)
-        dB22 = -f22 * q22^2 + f21 * (q22 * q11 + q21 * q12) - f12 * q22 * (q11 + q12) + f21 * q12 * (1.0 - p2) - f12 * q22 * (1.0 - p1)
+        q11 = positive(y[19]) / I1; q12 = positive(y[20]) / I1
+        q21 = positive(y[21]) / I2; q22 = positive(y[22]) / I2
+        dB11 = -f11 * q11^2 - 2.0 * f11 * q11 * q12 - f12 * q11 * q22 - f21 * q11 * (q21 + q22) + f12 * q21 * (1.0 - p1) - f21 * q11 * (1.0 - p2)
+        dB12 = -f11 * q12^2 + f12 * q11 * q22 - f21 * q12 * (q21 + q22) + f12 * q22 * (1.0 - p1) - f21 * q12 * (1.0 - p2)
+        dB21 = -f22 * q21^2 - 2.0 * f22 * q21 * q22 - f21 * q21 * q12 - f12 * q21 * (q11 + q12) + f21 * q11 * (1.0 - p2) - f12 * q21 * (1.0 - p1)
+        dB22 = -f22 * q22^2 + f21 * q21 * q12 - f12 * q22 * (q11 + q12) + f21 * q12 * (1.0 - p2) - f12 * q22 * (1.0 - p1)
         dJ_p2 = 2.0 * f11 * q11 * q12 + 2.0 * f22 * q21 * q22 + (f12 + f21) * (q11 * q22 + q12 * q21)
 
         # 6. Prior 3: Bidirectional Fitch Parsimony (F11, F12, F1s, F21, F22, F2s; J_fitch)
-        r11 = max(y[23], 0.0) / I1; r12 = max(y[24], 0.0) / I1; r1s = max(y[25], 0.0) / I1
-        r21 = max(y[26], 0.0) / I2; r22 = max(y[27], 0.0) / I2; r2s = max(y[28], 0.0) / I2
+        r11 = positive(y[23]) / I1; r12 = positive(y[24]) / I1; r1s = positive(y[25]) / I1
+        r21 = positive(y[26]) / I2; r22 = positive(y[27]) / I2; r2s = positive(y[28]) / I2
         r1 = r11 + r12 + r1s; r2 = r21 + r22 + r2s
         dF11 = f11 * (r11^2 + 2.0*r11*r1s - r11*r1) + f12 * (r11*r21 + r11*r2s + r1s*r21 - r11*r2) - f11*r1*r11 - f21*r2*r11 + f12*r21*(1.0 - r1) - f21*r11*(1.0 - r2)
         dF12 = f11 * (r12^2 + 2.0*r12*r1s - r12*r1) + f12 * (r12*r22 + r12*r2s + r1s*r22 - r12*r2) - f11*r1*r12 - f21*r2*r12 + f12*r22*(1.0 - r1) - f21*r12*(1.0 - r2)
@@ -270,7 +220,7 @@ function solve_coalescent_odes(
         dJs21 = f21 * p1
         dTL    = a1 + a2
         dTLA1  = a1
-        dTLA11 = max(y[15], 0.0) + max(y[17], 0.0)
+        dTLA11 = positive(y[15]) + positive(y[17])
         dTLA2  = a2
 
         du[1] = dA1; du[2] = dA2
@@ -283,6 +233,37 @@ function solve_coalescent_odes(
         du[29] = dJs; du[30] = dJs21; du[31] = dJ_p1; du[32] = dJ_p2; du[33] = dJ_fitch
         du[34] = dTL; du[35] = dTLA1; du[36] = dTLA11; du[37] = dTLA2
         return nothing
+end
+
+"""
+    solve_coalescent_odes(zp::ZoonosisParams; n1::Float64=100.0, n2::Float64=100.0, T_sample::Float64=zp.t_peak, dt::Float64=0.01, solver=Tsit5())
+
+Solve the two-host, 37-state Frost/Volz backward coalescent ODE system from `s = 0`
+(at `t = T_sample`) to `s = T_sample` (at `t = 0`), returning
+`(summary = ..., traj = DataFrame, fwd = fwd)`. For selectable multi-deme equations,
+use the `TFGY` or `ReactionSystem` overload.
+"""
+function solve_coalescent_odes(
+    zp::ZoonosisParams;
+    n1::Float64 = 100.0,
+    n2::Float64 = 100.0,
+    T_sample::Float64 = zp.t_peak,
+    dt::Float64 = 0.01,
+    solver = Tsit5()
+)
+    fwd = solve_forward_epidemic(zp; tmax = max(T_sample + 1.0, 35.0), dt = dt, solver = solver)
+    fwd_sol = fwd.sol
+    u_T = fwd_sol(T_sample)
+    Y1_T = max(u_T[2], 1e-9)
+    Y2_T = max(u_T[4], 1e-9)
+    n1_eff = n1
+    n2_eff = n2
+    n_total = n1_eff + n2_eff
+    function bwd_rhs!(du, y, p, s)
+        uf = fwd_sol(max(0.0, T_sample - s))
+        uf_eff = [max(uf[1], 1e-12), max(uf[2], 1e-9),
+            max(uf[3], 1e-12), max(uf[4], 1e-9)]
+        return _zoonosis_coalescent_rhs!(du, y, p, uf_eff)
     end
 
     y0 = zeros(Float64, 37)

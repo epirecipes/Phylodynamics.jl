@@ -7,6 +7,10 @@ using StableRNGs
 using DataFrames
 using CSV
 
+include("documentation.jl")
+include("coalescent_moments.jl")
+include("coalescent_symbolics.jl")
+
 @testset "Phylodynamics.jl Complete Test Suite" begin
 
     @testset "1. ModelingToolkit ReactionSystem & Stoichiometric Classification" begin
@@ -160,18 +164,15 @@ using CSV
                 @test max_rel_Y2 < 1e-6
             end
 
-            # (b) 37-state backward coalescent & parsimony ODEs across n1 curve
+            # (b) Unchanged moments retain their R references. Historical directional
+            # columns violate class conservation; corrected equations and trajectories
+            # are checked in coalescent_symbolics.jl and coalescent_moments.jl.
             df_curve_r = CSV.read(joinpath(ref_dir, "coalescent_model2_n1_curve.csv"), DataFrame)
             for n1_val in [10, 50, 100]
                 row_r = filter(r -> r.n1 == n1_val, df_curve_r)[1, :]
-                s1 = solve_coalescent_odes(model1_params(); n1=Float64(n1_val), n2=10.0).summary
                 s2 = solve_coalescent_odes(model2_params(); n1=Float64(n1_val), n2=10.0).summary
                 s3 = solve_coalescent_odes(model3_params(); n1=Float64(n1_val), n2=10.0).summary
-                @test isapprox(s1.J_pars_1to2, row_r.m1_J; atol=5e-3)
-                @test isapprox(s2.J_pars_1to2, row_r.m2_J; atol=5e-3)
                 @test isapprox(s2.r_assort, row_r.m2_r; atol=1e-3)
-                @test isapprox(s3.J_pars_1to2, row_r.m3_J; atol=5e-3)
-                @test isapprox(s3.J_pars_2to1, row_r.m3_J_CS21; atol=1e-2)
                 @test isapprox(s3.J_pars_fitch, row_r.m3_J_Fitch; atol=5e-3)
                 @test isapprox(s3.J_true_21, row_r.m3_Js21; atol=5e-3)
             end

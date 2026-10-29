@@ -49,6 +49,16 @@ function _postorder_internal_nodes(bt::PhyloTree)
     return post_nodes, children_map, root
 end
 
+"""
+    parsimony_counts(tree::PhyloTree)
+
+Count changes for binary tip states 1 and 2 after collapsing singleton nodes.
+Return a named tuple with irreversible Camin–Sokal counts `J_pars_1to2`
+(`J_pars`), `J_pars_2to1`, and the symmetric Fitch count `J_pars_fitch`.
+`J_fitch_12` and `J_fitch_21` split one optimal Fitch reconstruction by
+direction, resolving an ambiguous root to state 1. Irreversible scores use a
+free root.
+"""
 function parsimony_counts(tree_in::PhyloTree)
     bt = collapse_singletons(tree_in)
     n_tips = ntips(bt)

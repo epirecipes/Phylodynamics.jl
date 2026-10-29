@@ -26,8 +26,10 @@ A Julia package for forward and backward phylodynamic simulation, analytical str
    - **Time-Varying Structured Coalescent Inference**: `DatedTree`, `TFGY`, `build_demographic_process`, `colik` / `colik_pik` / `colik_pik_fgy` (`:PL2`, `:PL1`, and `:QL` approximations via `solvePikL1`, `solvePikL0`, `solveQAL`), and forward-backward ancestral character estimation `ace` (`solveQfwd0`).
    - **Equilibrium Island Coalescent Inference**: `gen_island_model`, `tips2states`, `island_coalescent_ml`, `confint_island_coalescent`, and `boot_island_coalescent`.
 
-4. **Analytical 37-State Coalescent & Parsimony ODEs (`solve_coalescent_odes`)**
-   - Integrates the coupled forward SIRS ODEs and 37-state backward coalescent ODEs across Models 1 (pure spillover), 2 (human-to-human spread), and 3 (bidirectional/reverse zoonosis), tracking expected true directional jumps ($J^*_{12}, J^*_{21}$), all three parsimony flow priors (Prior 1: $1 \to 2$ Camin–Sokal $J^{(0)}$; Prior 2: $2 \to 1$ reverse Camin–Sokal $J^{(1)}$; Prior 3: 6-state bidirectional Fitch $J_F$), cherry assortativity $r$, and normalized Sackin's tree imbalance $I_S^*$.
+4. **Selectable Multi-Deme Coalescent & Parsimony ODEs (`solve_coalescent_odes`)**
+   - Accepts a `TFGY` trajectory or a Catalyst/ModelingToolkit reaction system, with optional lineage, directional-jump, coalescence, branch-length, cherry, Sackin, Fitch, and directed/weighted Sankoff state groups. Parsimony closure is opt-in and bounded by explicit state budgets; observed character labels can group multiple demographic demes.
+   - Retains the two-host, 37-state `ZoonosisParams` interface for Models 1–3. Symbolics.jl regenerates all 37 derivatives from the general event equations, and a local-venv SymPy verifier independently checks the algebra and small-tree Sankoff scores.
+   - **Correction:** the legacy directional Camin-Sokal class equations previously failed to conserve lineage counts. Those terms are fixed; old directional-parsimony summaries need regeneration. See the [derivation and verification guide](https://epirecip.es/Phylodynamics.jl/coalescent-moments/).
 
 5. **Publication Figures via `CairoMakie.jl`**
    - `generate_all_figures()` produces all summary figures (`fig1`–`fig9` in `.pdf` and `.png`) and CSV tables in `julia_output/`.
@@ -115,7 +117,11 @@ julia --project=. scripts/reproduce_all.jl
 
 ## Quarto Vignettes (`vignettes/`)
 
-Six progressive Quarto vignettes using the `julia` engine are provided in `vignettes/` (each with its rendered standalone `.html`):
+Six progressive Quarto sources are provided in `vignettes/`. The documentation
+build converts every Julia cell into a Documenter `@example` block, executes all
+six tutorials, and publishes their code, results, figures, and the complete API
+reference together. A failing example fails the build; committed standalone HTML
+is not used for GitHub Pages.
 
 | # | Vignette | Description |
 |:--|:---------|:------------|
@@ -126,7 +132,13 @@ Six progressive Quarto vignettes using the `julia` engine are provided in `vigne
 | 5 | `05-structured-coalescent-inference/structured-coalescent-inference.qmd` | Structured coalescent likelihoods and ancestral character estimation: `build_demographic_process`, `DatedTree`, `colik` (`:PL2`, `:PL1`, `:QL`), 1D/2D profile likelihoods, LRTs for $\phi$ and $\psi$, forward-backward `ace` internal-node posteriors, and `island_coalescent_ml` equilibrium island-model inference |
 | 6 | `06-custom-compartmental-models/custom-compartmental-models.qmd` | Custom multi-deme compartmental models beyond two-host SIRS: a 2-deme Exposed–Infectious SEIR model (`[E, I]`) and a 3-deme wildlife–livestock–human bridge-reservoir chain (`[Y1, Y2, Y3]`) with 3-state `ace` reconstruction |
 
-To render any vignette or all vignettes:
+To build the complete executable documentation from the repository root:
+```bash
+julia --project=docs -e 'using Pkg; Pkg.develop(PackageSpec(path=pwd())); Pkg.instantiate()'
+julia --project=docs docs/make.jl
+```
+
+Alternatively, render the original Quarto sources:
 ```bash
 cd vignettes
 quarto render 01-reaction-networks/reaction-networks.qmd

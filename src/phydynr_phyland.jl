@@ -901,6 +901,7 @@ function colik(
     )
 end
 
+"""Alias for [`colik`](@ref), the demographic-process structured coalescent log-likelihood."""
 const colik_pik = colik
 
 """
@@ -1080,6 +1081,14 @@ function tips2states(
     return (ssts = ssts, demes = demes, m = m, tipstates = tipstates)
 end
 
+"""
+    PhylandFit
+
+Island-model inference result from [`phylandml`](@ref). Contains natural-scale
+`coef`, fitted `logcoef` and `param_names`, `loglik`, `demes`, migration `design`,
+an ancestral-state table `ace`, the reconstructed `bdt`, and `expected_jumps`
+(sums of endpoint posterior products, not stochastic-mapping jump counts).
+"""
 struct PhylandFit
     coef::Dict{String,Float64}
     logcoef::Vector{Float64}
@@ -1092,6 +1101,12 @@ struct PhylandFit
     expected_jumps::Matrix{Float64}
 end
 
+"""
+    PhylandProfile
+
+Result from [`confint_phylandml`](@ref): parameter name `param`, natural-scale
+interval `ci`, log-parameter `grid`, log-likelihoods `ll`, and table `sumdat`.
+"""
 struct PhylandProfile
     param::String
     ci::Tuple{Float64,Float64}
@@ -1281,6 +1296,9 @@ function boot_phylandml(trees::Vector{PhyloTree}; kwargs...)
     return (ci = DataFrame(rows), fits = fits)
 end
 
+"""Alias for [`phylandml`](@ref), maximum-likelihood island-model inference."""
 const island_coalescent_ml = phylandml
+"""Alias for [`confint_phylandml`](@ref), an island-model likelihood interval."""
 const confint_island_coalescent = confint_phylandml
+"""Alias for [`boot_phylandml`](@ref), island-model inference across replicate trees."""
 const boot_island_coalescent = boot_phylandml

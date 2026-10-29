@@ -262,6 +262,7 @@ function reaction_system_to_fgy(
     saveat = collect(range(tspan[1], tspan[2]; length=res))
     oprob = ODEProblem(odesys, u0_map, tspan, p_map)
     sol = solve(oprob, solver; saveat=saveat, reltol=1e-9, abstol=1e-11)
+    SciMLBase.successful_retcode(sol) || error("forward demographic integration failed: $(sol.retcode)")
 
     m = length(infected_species)
     demes = [String(Symbolics.tosymbol(s; escape=false)) for s in infected_species]
@@ -1135,12 +1136,15 @@ function TreeProblem(
     return TreeProblem(rs, collect(Any, infected), u0, (Float64(tspan[1]), Float64(tspan[2])), p, scfg)
 end
 
+"""`CoalescentStepper()`: solve a `TreeProblem` by deterministic demography and backward structured coalescence."""
 struct CoalescentStepper end
+"""`ForwardSSAStepper(; remove_singletons=true)`: solve a `TreeProblem` by tracking individual lineages in a forward Gillespie simulation."""
 struct ForwardSSAStepper
     remove_singletons::Bool
 end
 ForwardSSAStepper(; remove_singletons::Bool=true) = ForwardSSAStepper(remove_singletons)
 
+"""`ReMASTERStepper(; remove_singletons=true)`: solve a `TreeProblem` by forward reaction logging and backward event tracing."""
 struct ReMASTERStepper
     remove_singletons::Bool
 end
@@ -1222,7 +1226,9 @@ function SimTree(
     end
 end
 
+"""Alias for [`ReMASTERStepper`](@ref), the forward-backward SSA tree solver."""
 const ForwardBackwardSSAStepper = ReMASTERStepper
+"""Alias for [`simulate_forward_master_tree`](@ref); accepts the same arguments and keywords."""
 const simulate_forward_lineage_tree = simulate_forward_master_tree
+"""Alias for [`simulate_remaster_tree`](@ref); accepts the same arguments and keywords."""
 const simulate_forward_backward_tree = simulate_remaster_tree
-

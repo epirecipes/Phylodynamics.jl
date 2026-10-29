@@ -63,7 +63,7 @@ DataFrame(
 
 ## Profile likelihoods and hypothesis tests for $\phi$ (human spread) and $\psi$ (reverse zoonosis)
 
-Using `profile_structured_coalescent(t1, t2, t3)`, we compute 1D profile log-likelihood curves over the human-to-human transmission multiplier $\phi$ (testing $H_0: \phi = 0$), the reverse zoonosis multiplier $\psi$ (testing $H_0: \psi = 0$), and the 2D $(\epsilon, \phi)$ surface:
+Using `profile_structured_coalescent(t1, t2, t3)`, we compute likelihood slices over the human-to-human transmission multiplier $\phi$ (comparing $H_0: \phi = 0$), the reverse zoonosis multiplier $\psi$ (comparing $H_0: \psi = 0$), and the 2D $(\epsilon, \phi)$ surface. Other parameters remain fixed at their generating values; these are not nuisance-parameter-optimized profile likelihoods:
 
 ```{julia}
 prof = profile_structured_coalescent(t1, t2, t3; likelihood = :PL2)
@@ -71,9 +71,29 @@ fig_prof = plot_fig7_structured_coalescent_profiles(prof; outdir = mktempdir())
 fig_prof
 ```
 
-- On **Model 1** (true $\phi = 0$, Panel A), the profile log-likelihood peaks at the boundary $\hat{\phi} = 0.0$ and decreases monotonically, yielding $\text{LRT}_{21} = 0$.
-- On **Model 2** (true $\phi = 4.0, \psi = 0$, Panel B), $\phi = 0$ is rejected by $> 17$ log-likelihood units ($2\Delta\ell = 34.6, p < 10^{-8}$) and the profile peaks at $\hat{\phi} = 4.0$, while the reverse-zoonosis profile (Panel C, dashed orange) peaks at $\hat{\psi} = 0.0$.
-- On **Model 3** (true $\phi = 4.0, \psi = 4.0$, Panel C, solid green), the null hypothesis $\psi = 0$ is rejected by $\Delta\ell = -7.74$ ($2\Delta\ell = 15.48, p < 10^{-4}$).
+The following table computes the grid maxima and likelihood differences from
+these simulated trees, rather than assuming that each maximum equals the
+generating value. The statistic is twice the difference from the zero-rate
+slice; formal hypothesis tests require optimizing nuisance parameters and
+accounting for a null on the parameter-space boundary.
+
+```{julia}
+DataFrame(
+    Comparison = ["Model 1: phi", "Model 2: phi", "Model 2: psi", "Model 3: psi"],
+    GridMaximum = [
+        prof.profile_eps.phi[argmax(prof.profile_eps.loglik)],
+        prof.profile_phi.phi[argmax(prof.profile_phi.loglik)],
+        prof.profile_psi.psi[argmax(prof.profile_psi.loglik_m2)],
+        prof.profile_psi.psi[argmax(prof.profile_psi.loglik_m3)]
+    ],
+    TwiceLogLikelihoodDifference = [
+        -2 * first(prof.profile_eps.delta_ll),
+        -2 * first(prof.profile_phi.delta_ll),
+        -2 * first(prof.profile_psi.delta_ll_m2),
+        -2 * first(prof.profile_psi.delta_ll)
+    ]
+)
+```
 
 ## Forward-backward Ancestral Character Estimation (`ace`)
 
@@ -112,8 +132,8 @@ When demographic trajectories are unknown and demes are approximated as constant
 
 ```{julia}
 fit_island = island_coalescent_ml(t2; maxiters = 100, likelihood = :QL)
-println("Converged log-likelihood: ", round(fit_island.loglik, digits = 3))
-println("Expected directional jumps matrix: ", round.(fit_island.expected_jumps, digits = 2))
+println("Fitted log-likelihood: ", round(fit_island.loglik, digits = 3))
+println("Endpoint-posterior transition summary: ", round.(fit_island.expected_jumps, digits = 2))
 DataFrame(
     Parameter = collect(keys(fit_island.coef)),
     Estimate = round.(collect(values(fit_island.coef)), digits = 4)

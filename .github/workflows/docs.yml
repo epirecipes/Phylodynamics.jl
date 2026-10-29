@@ -27,7 +27,7 @@ jobs:
       - uses: julia-actions/cache@v2
       - name: Install documentation dependencies
         run: julia --project=docs -e 'using Pkg; Pkg.develop(PackageSpec(path=pwd())); Pkg.instantiate()'
-      - name: Build API documentation and include rendered vignettes
+      - name: Execute tutorials and build complete documentation
         run: julia --project=docs docs/make.jl
       - uses: actions/upload-pages-artifact@v3
         with:

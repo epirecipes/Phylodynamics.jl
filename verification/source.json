@@ -1,0 +1,22 @@
+{
+  "baseline_commit": "d7f3acb0854eb5f9424b7c4a56c685c017e7ce13",
+  "baseline_path": "src/coalescent_odes.jl",
+  "baseline_sha256": "9cd63e6f514ab49fa945c32b78b82b7391ce38ee1a30e93ef9980f1e9ccb9908",
+  "scope": "Independent symbolic mean-field event identities and finite-tree Sankoff score enumeration; not stochastic expectation closure, numerical integration, or a proof assistant development.",
+  "assumptions": [
+    "Positive deme populations Y_i; nonnegative lineage classes and event rates.",
+    "Class row sums equal ancestral counts A_i, with factorized endpoint occupancy q_ic = H_ic/Y_i and p_i = A_i/Y_i.",
+    "For a probabilistic event interpretation also require A_i <= Y_i; polynomial identities do not require this bound.",
+    "A forward transmission i->j has rate F_ij. Two ancestral endpoints coalesce in parent deme i; child-only ancestry transfers j->i at F_ij*(1-p_i)*q_jc.",
+    "Physical migration i->j has rate G_ij and backward class transfer j->i at G_ij*q_jc; diagonal physical migration is ignored.",
+    "Sankoff edge costs are nonnegative directed integers or infinity with zero diagonal; root state is free with zero root cost.",
+    "Descendant masses use an additional factorized first-moment closure within each deme."
+  ],
+  "generated_csv": {
+    "columns": ["claim", "expression", "expected"],
+    "independent_claims": ["A1", "A2", "H11", "H12", "H21", "H22", "J", "X1", "X2", "L11", "L12", "L21", "L22", "C11", "C12", "C22"],
+    "symbols": "Y1,Y2,H11,H12,H21,H22,F11,F12,F21,F22,G11,G12,G21,G22,X1,X2,L11,L12,L21,L22",
+    "class_rule": "For H and J claims, two classes 1 and 2 use irreversible 1->2 Camin-Sokal merging: mixed pair becomes class 1 and increments J by 1. Pure pairs retain class.",
+    "contract": "An explicitly supplied CSV must exist, have exactly the declared columns, and contain all 37 unique legacy_1 through legacy_37 claims and all 16 unique independent_claims; duplicate claims are rejected. Every row must simplify expression-expected to zero. All identifier tokens (including beta and z1 through z37) are declared as symbols, not SymPy builtin functions. Recognized claim names are additionally compared with independent event-derived expressions. All eight legacy claims 15 through 22 are independently compared with directional event equations under corresponding class-row constraints. Other unknown names are reported as cross-generator checks only, not independently derived claims. A CSV containing self-comparisons alone cannot pass."
+  }
+}

@@ -96,8 +96,11 @@ function PhyloTree(
     )
 end
 
+"""Return the number of sampled tips in a `PhyloTree`."""
 ntips(tree::PhyloTree) = length(tree.tip_label)
+"""Return the number of tips plus internal nodes in a `PhyloTree`."""
 ntotal_nodes(tree::PhyloTree) = length(tree.tip_label) + tree.nnode
+"""Return the root index (`ntips(tree) + 1`) under the package's APE numbering."""
 root_node(tree::PhyloTree) = length(tree.tip_label) + 1
 
 function compute_node_times_from_root(edge::Matrix{Int}, edge_length::Vector{Float64}, ntips::Int, nnode::Int)
@@ -519,6 +522,12 @@ function write_newick(tree::PhyloTree; include_metadata::Bool=false)
     return fmt_node(root, nothing) * ";"
 end
 
+"""
+    write_newick_file(tree::PhyloTree, path; include_metadata=false)
+
+Write a Newick tree to `path` and return that path. Set `include_metadata=true`
+to include node states and times, as in [`write_newick`](@ref).
+"""
 function write_newick_file(tree::PhyloTree, path::AbstractString; include_metadata::Bool=false)
     open(path, "w") do io
         println(io, write_newick(tree; include_metadata=include_metadata))

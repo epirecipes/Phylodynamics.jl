@@ -7,7 +7,7 @@ date: today
 
 ## Overview
 
-While stochastic tree simulations capture realization-to-realization variability, analytical expectations for ancestral state reconstruction can be derived by coupling the forward epidemiological ODEs with a system of **37 backward-in-time differential equations** (`solve_coalescent_odes`).
+While stochastic tree simulations capture realization-to-realization variability, mean-field approximations for ancestral state reconstruction can be derived by coupling the forward epidemiological ODEs with backward-in-time differential equations. The `ZoonosisParams` specialization of `solve_coalescent_odes` uses **37 equations** for two hosts. The `TFGY` and `ReactionSystem` overloads support arbitrary numbers of demes with selectable moment groups and directed Sankoff parsimony.
 
 Going backward in time $s = T - t \in [0, T]$ from sampling time $T$ with initial sample sizes $(n_1, n_2)$, `solve_coalescent_odes` simultaneously integrates:
 
@@ -35,9 +35,11 @@ df_canon[:, [:model, :J_true_12, :J_true_21, :J_pars_1to2, :J_pars_2to1, :J_pars
 
 Key theoretical insights immediately visible from the ODE table:
 
-1. **Coalescence below the jump**: Even under pure spillover (Model 1, where $J^*_{12} = 100$), two independent human spillover lineages can migrate backward into the reservoir and coalesce with each other *before* coalescing with a sampled reservoir lineage, causing $J^{(0)} = 78.1 < 100$ and $J_F = 66.6 < 100$.
-2. **Prior-reversal inflation**: Under Model 2 ($\phi = 4.0$), where human tips form large monophyletic clades ($r = 0.784$), reversing the parsimony prior to $2 \to 1$ ($J^{(1)} = 53.8$) nearly doubles the inferred number of jumps compared to the $1 \to 2$ prior ($J^{(0)} = 26.5$).
-3. **Topological detection of reverse zoonosis**: Under Models 1 and 2 ($\psi = 0$), $J^{(0)} \approx J_F$, whereas under Model 3 ($\psi = 4.0$), animal tips nested inside human clades force extra $1 \to 2$ steps under unidirectional Camin–Sokal parsimony, creating a strict excess $\Delta J = J^{(0)} - J_F = 30.90 - 27.74 = +3.16 > 0$.
+1. **Coalescence below the jump**: Even under pure spillover, independent human spillover lineages can migrate backward into the reservoir and coalesce with each other *before* coalescing with a sampled reservoir lineage, so parsimony need not recover every true jump.
+2. **Prior-reversal inflation**: When human tips form large monophyletic clades, reversing the parsimony prior can increase the reconstructed number of jumps substantially.
+3. **Reverse zoonosis**: Animal tips nested inside human clades can create an excess of directional Camin-Sokal changes over the unconstrained Fitch score. The executed table above gives the values for the current model and equations.
+
+The directional class equations have been corrected to conserve total ancestral lineages. Numerical results from older rendered versions should not be used as reference values.
 
 ## Effect of sampling time $T$ and sample fractions $(n_1, n_2)$
 

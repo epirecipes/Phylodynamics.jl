@@ -1,5 +1,15 @@
 # Vignettes
 
+GitHub Pages publishes these sources as full Documenter tutorials. Every Julia
+cell is converted to a shared, named `@example` block and executed on each build;
+errors fail the build. To build the tutorials together with the API reference:
+
+```sh
+cd Phylodynamics.jl
+julia --project=docs -e 'using Pkg; Pkg.develop(PackageSpec(path=pwd())); Pkg.instantiate()'
+julia --project=docs docs/make.jl
+```
+
 Each subdirectory holds one Quarto document (Julia engine) that can be rendered on its own:
 
 ```sh

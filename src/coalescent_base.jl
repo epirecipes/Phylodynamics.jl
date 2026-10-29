@@ -10,17 +10,27 @@
 # - Bidirectional conversion between SimTree and PhyloTree
 # ==============================================================================
 
+"""Reaction code for transmission/birth events in a `ModelFGY`."""
 const RXN_BIRTH = 0
+"""Reaction code for physical migration between demes."""
 const RXN_MIG = 1
+"""Reaction code for infected-lineage removal."""
 const RXN_DEATH = 2
+"""Reaction code for changes to auxiliary demographic variables."""
 const RXN_DYNVAR = 3
 
+"""`Event` code for a sampled lineage."""
 const SAMPLE = 0
+"""`Event` code for a coalescence."""
 const COALESCENT = 1
+"""`Event` code for a lineage changing demes."""
 const MIGRATION = 2
+"""`Event` code reserved for recombination."""
 const RECOMBINATION = 3
 
+"""Markovian lineage-state approximation for `SimTree`."""
 const ALGO_MARKOV = "markov"
+"""Stationary lineage-state approximation for `SimTree`."""
 const ALGO_STATIONARY = "stationary"
 
 """

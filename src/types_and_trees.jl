@@ -262,10 +262,7 @@ function read_newick(newick_str::AbstractString; T_sample::Float64=12.85)
     for (i, lf) in enumerate(leaves)
         node_id[lf] = i
         st = infer_tip_state(lf.label, lf.meta_type)
-        lbl = isempty(lf.label) ? "tip_$(i)_$(st == 2 ? "Y" : "I")" : lf.label
-        if !endswith(lbl, "_I") && !endswith(lbl, "_Y") && !isempty(lf.meta_type)
-            lbl = "$(lbl)_$(st == 2 ? "Y" : "I")"
-        end
+        lbl = isempty(lf.label) ? "tip_$i" : lf.label
         tip_label[i] = lbl
         tip_state[i] = st
         node_state[i] = st
